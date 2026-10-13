@@ -21,9 +21,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="verify the toolchain on this machine")
     doctor.add_argument("--paths", default="configs/paths.yaml", help="machine paths YAML")
     sim = sub.add_parser("sim", help="Gazebo tools")
-    sim.add_argument("action", choices=["up", "drop-test"])
+    sim.add_argument("action", choices=["up", "drop-test", "fly-check"])
     sim.add_argument("--gui", action="store_true", help="also open the Gazebo GUI")
+    sim.add_argument("--drone", action="store_true", help="up: also spawn the iris")
+    sim.add_argument("--rtf", type=float, default=1.0, help="fly-check: Gazebo real-time factor")
+    sim.add_argument("--speedup", type=float, help="fly-check: override SITL --speedup")
     sim.add_argument("--config", default="configs/sim.yaml")
+    sim.add_argument("--sitl-config", default="configs/sitl.yaml")
+    sim.add_argument("--paths", default="configs/paths.yaml")
     for name, step in _PLANNED.items():
         sub.add_parser(name, help=f"not yet implemented: {step}")
     return parser
@@ -41,6 +46,16 @@ def main(argv: list[str] | None = None) -> int:
         from lander.sim import demo
 
         cfg = yaml.safe_load(open(args.config))
-        return {"up": demo.world_up, "drop-test": demo.drop_test}[args.action](cfg, args.gui)
+        sitl_cfg = yaml.safe_load(open(args.sitl_config))
+        if args.action == "up":
+            return demo.world_up(cfg, args.gui, sitl_cfg["drone"] if args.drone else None)
+        if args.action == "drop-test":
+            return demo.drop_test(cfg, args.gui)
+        from lander.sim.fly_check import fly_check
+
+        paths = yaml.safe_load(open(args.paths))
+        if args.speedup:
+            sitl_cfg["speedup"] = args.speedup
+        return fly_check(cfg, sitl_cfg, paths, args.gui, args.rtf)
     print(f"'{args.command}' is not implemented yet: {_PLANNED[args.command]}")
     return 2

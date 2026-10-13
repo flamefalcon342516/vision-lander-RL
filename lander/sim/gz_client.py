@@ -10,6 +10,7 @@ optional quaternion; we don't need orientation until Step 2.
 """
 from __future__ import annotations
 
+import math
 import multiprocessing as mp
 import os
 import subprocess
@@ -179,11 +180,17 @@ class GzWorld:
         if not (ok and rep.data):
             raise RuntimeError(f"gz service '{service}' failed (responded={ok})")
 
-    def spawn(self, sdf_uri: str, name: str, at: Vec3) -> None:
-        """Insert a model. sdf_filename accepts a model:// URI or a file path."""
+    def spawn(self, sdf_uri: str, name: str, at: Vec3, yaw_rad: float = 0.0) -> None:
+        """Insert a model. sdf_filename accepts a model:// URI or a file path.
+
+        yaw_rad is about world +z (ENU, counter-clockwise from East).
+        """
         req = EntityFactory(sdf_filename=sdf_uri, name=name, allow_renaming=False)
         req.pose.position.x, req.pose.position.y, req.pose.position.z = at.x, at.y, at.z
-        req.pose.orientation.w = 1.0  # identity quaternion; all-zero is invalid
+        # Quaternion of a pure yaw: (w, z) = (cos(yaw/2), sin(yaw/2)).
+        # Identity is w=1; an all-zero quaternion is invalid.
+        req.pose.orientation.w = math.cos(yaw_rad / 2)
+        req.pose.orientation.z = math.sin(yaw_rad / 2)
         self._call("create", req)
 
     def remove(self, name: str) -> None:

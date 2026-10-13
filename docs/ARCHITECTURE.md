@@ -104,3 +104,15 @@ Humble targets 22.04 only, so on the Spark (24.04) we would use Jazzy or a
 | `pose/info` publish rate | ~60 Hz *wall*, independent of RTF | not usable as per-step ground truth; use per-model pose publishers (Step 10) |
 | `clock` publish rate | every physics step | reliable sim-time source |
 | Python services + subscriptions in one process | deadlock (GIL) | service calls live in a worker process (`lander/sim/gz_client.py`) |
+
+## Measured simulator facts (Step 2): Gazebo + SITL lockstep
+| Fact | Value | Consequence |
+|---|---|---|
+| Lockstep speed ceiling (no camera) | ~12x real time (RTF/speedup 20) | Stage B gives at most ~12 sim-s per wall-s, before rendering costs |
+| SITL boot -> armable (EKF + GPS) | ~40 s sim (41 s wall at 1x, 4-5 s wall at 20-100x) | a SITL restart per episode costs >= 4 s wall |
+| Gazebo pose -> NED vs SITL LOCAL_POSITION_NED | < 1 cm N/E, ~5 cm D | ENU->NED mapping (N,E,D) = (y, x, -z) verified |
+| SITL killed while connected | Gazebo blocks (lock-step resend loop) | Step 10 must restart SITL and Gazebo together, or not kill SITL |
+
+**Extra baseline (added in Step 2):** ArduPilot's built-in precision landing
+(`PLND_*`, `PLND_OPTIONS` bit 0 = moving target), fed with `LANDING_TARGET`
+messages from our detector. Any RL result must be compared against it.

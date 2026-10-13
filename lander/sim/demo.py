@@ -6,6 +6,7 @@ time and the fitted gravity against h = g t^2 / 2.
 """
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -43,8 +44,12 @@ def _stop(proc: subprocess.Popen) -> None:
             os.killpg(proc.pid, signal.SIGKILL)
 
 
-def world_up(cfg: dict, gui: bool) -> int:
-    """Start the world, unpause, and keep it running until Ctrl-C / SIGTERM."""
+def world_up(cfg: dict, gui: bool, drone: dict | None = None) -> int:
+    """Start the world, unpause, and keep it running until Ctrl-C / SIGTERM.
+
+    With `drone` (the `drone:` block of configs/sitl.yaml), the iris is spawned
+    so SITL can connect: run `make sitl-manual` in a second terminal.
+    """
     stop = threading.Event()
     # Install handlers explicitly: a process started in the background by a
     # non-interactive shell inherits SIGINT as *ignored*, so relying on the
@@ -52,6 +57,9 @@ def world_up(cfg: dict, gui: bool) -> int:
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     with running_world(cfg, gui) as w:
+        if drone is not None:
+            w.spawn(drone["model_uri"], drone["name"], Vec3(0.0, 0.0, drone["spawn_z_m"]),
+                    math.radians(drone["spawn_yaw_deg"]))
         w.pause(False)
         print(f"world '{w.world}' running. Try:  gz topic -l   |   gz service -l")
         print("Ctrl-C to stop.")

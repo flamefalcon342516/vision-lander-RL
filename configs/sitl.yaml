@@ -1,0 +1,32 @@
+# ArduCopter SITL connected to Gazebo through the JSON backend (Step 2+).
+# Paths to ardupilot come from configs/paths.yaml.
+
+# Same defaults sim_vehicle.py uses for `-f gazebo-iris` (see
+# Tools/autotest/pysim/vehicleinfo.py), relative to ardupilot_dir.
+default_params:
+  - Tools/autotest/default_params/copter.parm
+  - Tools/autotest/default_params/gazebo-iris.parm
+instance: 0                    # -I0: SERIAL0 on tcp:5760, JSON servo out to udp:9002
+speedup: 1                     # SITL's own pacing target (wall-clock multiple)
+# Must match <spherical_coordinates> in the world, else SITL's GPS/home and the
+# Gazebo origin disagree. Format: lat,lon,alt_m,heading_deg.
+home: "-35.363262,149.165237,584,0"
+mavlink_url: tcp:127.0.0.1:5760
+workdir: .sitl                # eeprom.bin, logs, terrain go here (gitignored)
+
+drone:
+  model_uri: model://iris_with_ardupilot
+  name: iris
+  # Resting height of the iris origin above the ground (same as iris_runway.sdf).
+  spawn_z_m: 0.195
+  # 90 deg about ENU z: model +x (nose) points along Gazebo +y = North, so the
+  # vehicle starts with heading 0 (north), matching `home` above.
+  spawn_yaw_deg: 90
+
+fly_check:
+  takeoff_alt_m: 5.0
+  hover_s: 5.0               # sim seconds of hover used for the frame/drift check
+  alt_tolerance_m: 0.5
+  ekf_ready_timeout_s: 90    # wall seconds to wait for GPS/EKF before arming
+  phase_timeout_s: 60        # wall seconds per phase (climb, land)
+  frame_tolerance_m: 0.3     # |Gazebo pose mapped to NED - SITL LOCAL_POSITION_NED|

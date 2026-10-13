@@ -38,3 +38,15 @@ def test_crate_free_fall_matches_theory() -> None:
 
     cfg = yaml.safe_load((ROOT / "configs" / "sim.yaml").read_text())
     assert drop_test(cfg, gui=False) == 0
+
+
+@needs_gz
+@pytest.mark.slow
+def test_sitl_takeoff_hover_land_and_frames() -> None:
+    """Full Gazebo + SITL loop at 5x: arm, take off, hover, land; ENU->NED agrees."""
+    from lander.sim.fly_check import fly_check
+
+    load = lambda name: yaml.safe_load((ROOT / "configs" / name).read_text())  # noqa: E731
+    sitl_cfg = load("sitl.yaml")
+    sitl_cfg["speedup"] = 5
+    assert fly_check(load("sim.yaml"), sitl_cfg, load("paths.yaml"), gui=False, rtf=5) == 0

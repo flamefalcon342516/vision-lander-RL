@@ -153,3 +153,97 @@ One section per step: concepts, equations, pitfalls, interview Q&A.
 - *What does ENU vs NED mean, and where does it bite?* — Gazebo uses x East,
   y North, z Up; MAVLink/ArduPilot local frames use x North, y East, z Down.
   Mixing them makes the drone fly mirrored or upside-down in altitude.
+
+---
+
+## Step 2 — ArduPilot SITL + ardupilot_gazebo
+
+### Concepts
+- **SITL** = the real ArduCopter firmware compiled for Linux. Only the sensors
+  and actuators are fake; EKF, mode logic and controllers are the same code
+  that flies on the real flight controller.
+- **The JSON backend (`--model JSON`)** splits the simulation:
+  - SITL → Gazebo (UDP 9002): a binary *servo packet*: `magic=18458`,
+    `frame_rate`, `frame_count`, `pwm[16]`.
+  - Gazebo → SITL: a JSON *state* message: `timestamp` (sim time), `imu.gyro`,
+    `imu.accel_body`, `position`, `quaternion`, `velocity` (all NED).
+  - SITL's clock = the JSON timestamp. ArduPilot has no clock of its own here.
+- **Lockstep, as implemented in `ArduPilotPlugin.cc`:**
+  - In `PreUpdate`, once SITL is online, Gazebo *blocks* in a loop until a
+    servo packet arrives, then applies motor forces.
+  - In `PostUpdate`, it sends the new state.
+  - SITL waits for that state before computing the next PWM. Neither side can
+    run ahead.
+  - Consequence 1: if SITL dies or is paused, **Gazebo freezes**, because the
+    plugin re-sends the last state forever instead of timing out (lock_step
+    branch). This matters for resets in Step 10.
+  - Consequence 2: before SITL connects, the plugin waits 1 ms per step for a
+    packet, which caps the free-running sim near real time.
+- **How the motors work in Gazebo:**
+  - PWM 1100–1900 → normalised 0–1 → × `multiplier` (838 rad/s; negative for
+    the counter-rotating props) → target rotor joint velocity.
+  - A PID turns that target into a joint torque.
+  - The `LiftDrag` systems on each blade produce the thrust.
+  - So the "motor model" is a velocity-controlled joint plus blade aerodynamics.
+- **Frames in the plugin:** `<gazeboXYZToNED>0 0 0 180 0 90</gazeboXYZToNED>`
+  rotates ENU into NED, and `<modelXYZToAirplaneXForwardZDown>` flips the
+  model's z-up body frame to z-down (FRD). Spawning with yaw 90° in ENU points
+  the nose north, so the heading is 0.
+- **ENU → NED for positions:** (N, E, D) = (y, x, −z). Verified: Gazebo pose
+  mapped to NED agrees with SITL `LOCAL_POSITION_NED` to < 1 cm in N/E and
+  ~5 cm in D (the difference between the vehicle's origin and the EKF origin).
+- **Pre-arm checks:** GUIDED needs a position estimate. Arming is refused
+  ("Need Position Estimate") until the EKF fuses GPS. This took ~40 s of sim time.
+- **GUIDED velocity commands** time out after `GUID_TIMEOUT` (3 s). MAVProxy's
+  `velocity 2 0 0` sends one `SET_POSITION_TARGET_LOCAL_NED` (frame 8 =
+  BODY_NED, type_mask 4039 = velocity only), so the drone moves for ~3 s and
+  then stops. This is the same message our policy will send, but streamed.
+
+### type_mask 4039, bit by bit
+| bits | meaning | value |
+|---|---|---|
+| 0–2 | ignore position x,y,z | 1+2+4 = 7 |
+| 3–5 | **use** velocity | 0 |
+| 6–8 | ignore acceleration | 64+128+256 = 448 |
+| 9 | force (ignored by ArduPilot) | 512 |
+| 10 | ignore yaw | 1024 |
+| 11 | ignore yaw rate | 2048 |
+Total 4039. To command yaw_rate too, clear bit 11 → 1991.
+
+### Measurements
+| Gazebo RTF / SITL speedup | wall time to arm | lockstep speed |
+|---|---|---|
+| 1 / 1 | 41 s | 1.0× |
+| 5 / 5 | 9 s | 5.0× |
+| 20 / 20 | 4 s | 12.2× |
+| 100 / 100 | 5 s | 10.5× |
+- With SITL in the loop, the ceiling is ~12× real time even before any camera
+  is rendered. Compare ~41× for Gazebo alone. Stage A exists for this reason.
+- Restarting SITL per episode costs ≥ 4 s of wall time just to re-arm, even
+  at max speed. That's an input to the reset decision in Step 10.
+
+### Pitfalls
+- `sim_vehicle.py` rebuilds with waf on every launch unless `--no-rebuild`.
+- SITL writes eeprom/logs/terrain into its cwd. Run it from `.sitl/`.
+- `--wipe`/`-w` resets parameters to the defaults. Without it, parameters you
+  changed in one session silently persist into the next.
+- The `gz_frame_id ... not defined in SDF` warning comes from the upstream iris
+  model and is harmless.
+- `gazebo-iris.parm` enables precision landing (`PLND_ENABLED 1`, IRLock type)
+  and a simulated rangefinder. In LAND with no target, `PLND_STRICT=1` prints
+  "PrecLand: Failsafe Measures", then lands vertically.
+
+### Interview Q&A
+- *What is lockstep and what breaks without it?* — Physics and autopilot advance
+  in alternating fixed steps keyed to sim time. Without it, any CPU hiccup
+  becomes a sensor delay or a missed control update the real vehicle wouldn't
+  have, and the results aren't reproducible.
+- *Why is SITL more trustworthy than a hand-written drone model?* — It runs
+  the actual EKF, mode logic and controllers. The policy is trained against the
+  same velocity loop that will fly the real drone; only the airframe physics is
+  simulated.
+- *ArduPilot already has precision landing on moving targets
+  (`PLND_OPTIONS` bit 0). Why use RL?* — It's the baseline we must compare
+  against. The RL claim to test: better handling of marker loss, fast or
+  manoeuvring rovers, and descent timing. If PrecLand matches it, that's an
+  honest result to report.
