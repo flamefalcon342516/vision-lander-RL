@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Training outputs (TensorBoard events, checkpoints) — large, regenerable
+runs/*
+!runs/.gitkeep
+
+# SITL / Gazebo artefacts written to the working directory
+eeprom.bin
+logs/
+terrain/
+mav.parm
+mav.tlog*
+.sitl/

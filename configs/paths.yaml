@@ -1,0 +1,9 @@
+# Machine-specific locations of external tools. `python -m lander doctor`
+# checks every entry. Edit these on another machine (e.g. the DGX Spark).
+ardupilot_dir: ~/ardupilot
+arducopter_bin: ~/ardupilot/build/sitl/bin/arducopter
+ardupilot_gazebo_dir: ~/gz_ws/src/ardupilot_gazebo
+ardupilot_gazebo_plugin: ~/gz_ws/src/ardupilot_gazebo/build/libArduPilotPlugin.so
+# Warn below this much free disk (GB): TensorBoard runs, SITL logs and
+# image datasets for the stretch CNN step add up quickly.
+min_free_disk_gb: 15

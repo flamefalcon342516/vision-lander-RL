@@ -1,0 +1,12 @@
+[project]
+name = "lander"
+version = "0.0.1"
+description = "Vision-based autonomous landing on a moving platform with PPO (Gazebo + ArduPilot SITL)"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["lander*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: needs Gazebo/SITL or long runtime"]

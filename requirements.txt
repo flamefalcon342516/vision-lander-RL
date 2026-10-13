@@ -1,0 +1,21 @@
+# Install with:
+#   uv pip install --python .venv/bin/python -r requirements.txt \
+#     --index-url https://download.pytorch.org/whl/cu126 \
+#     --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
+#
+# torch: the +cu126 build is pinned on purpose. The PyPI default (cu130) needs
+# NVIDIA driver >= 580; this laptop has 535 (CUDA 12.2), and CUDA 12.x
+# minor-version compatibility lets cu126 run on it. On the DGX Spark (ARM64,
+# Blackwell GB10, driver 580+) use torch==2.14.1 from the cu130 index instead.
+torch==2.14.1+cu126
+stable-baselines3==2.9.0
+gymnasium==1.4.0
+tensorboard==2.21.0
+numpy<2
+opencv-python==4.10.0.84
+pymavlink==2.4.50
+pyyaml
+matplotlib
+onnx==1.23.2
+onnxruntime==1.23.2
+pytest
