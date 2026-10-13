@@ -95,3 +95,12 @@ are pure Python; numpy, opencv-python, onnxruntime and pymavlink all ship
 aarch64 wheels; Gazebo Harmonic has arm64 debs for jammy and noble. ROS 2
 Humble targets 22.04 only, so on the Spark (24.04) we would use Jazzy or a
 22.04 container. That's not needed, since we don't use ROS for training.
+
+## Measured simulator facts (Step 1)
+| Fact | Value | Consequence |
+|---|---|---|
+| Empty-world max speed (RTF unlimited) | ~41-43x real time | physics is not our bottleneck; SITL + camera rendering will be |
+| Service round trip (spawn / set_pose) | 0.10 s first spawn, ~2 ms set_pose | per-episode resets via services are affordable |
+| `pose/info` publish rate | ~60 Hz *wall*, independent of RTF | not usable as per-step ground truth; use per-model pose publishers (Step 10) |
+| `clock` publish rate | every physics step | reliable sim-time source |
+| Python services + subscriptions in one process | deadlock (GIL) | service calls live in a worker process (`lander/sim/gz_client.py`) |

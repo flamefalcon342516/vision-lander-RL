@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="test_crate">
+    <!-- A model is a tree of links (rigid bodies) connected by joints. One
+         link here. Each link has three independent descriptions:
+           inertial  -> how it moves   (physics)
+           collision -> how it touches (physics, keep it simple/cheap)
+           visual    -> how it looks   (rendering only, can be detailed)  -->
+    <link name="body">
+      <inertial>
+        <mass>2.0</mass>
+        <!-- Solid cube, side a: I = m*a^2/6 on each axis
+             = 2.0 * 0.4^2 / 6 = 0.05333 kg m^2. Wrong inertia is a classic
+             source of "the model spins/explodes" bugs. -->
+        <inertia>
+          <ixx>0.05333</ixx><iyy>0.05333</iyy><izz>0.05333</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><box><size>0.4 0.4 0.4</size></box></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry><box><size>0.4 0.4 0.4</size></box></geometry>
+        <material>
+          <ambient>0.8 0.5 0.1 1</ambient>
+          <diffuse>0.8 0.5 0.1 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

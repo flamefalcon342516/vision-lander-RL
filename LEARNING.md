@@ -65,3 +65,91 @@ One section per step: concepts, equations, pitfalls, interview Q&A.
 - *What is lockstep and why does it matter for RL?* — Sim and autopilot advance
   one step together, so results are reproducible and sim speed is decoupled
   from wall clock. Our env step must be defined in sim time, not wall time.
+
+---
+
+## Step 1 — Gazebo fundamentals
+
+### Concepts
+- **Gazebo Sim = Entity-Component-System (ECS).**
+  - *Entity:* an ID (world, model, link, joint, sensor, light).
+  - *Component:* data attached to it (Pose, Inertial, LinearVelocity...).
+  - *System:* a plugin that runs each step and reads or writes components.
+  - Physics, sensors and the services are all systems. If the system isn't
+    loaded, the feature silently does nothing. Example: an IMU sensor without
+    `gz-sim-imu-system` publishes nothing.
+- **System update order per step:** PreUpdate (commands, e.g. our set_pose) →
+  Update (physics integrates) → PostUpdate (sensors, broadcasters read the result).
+- **SDF hierarchy:** `world` → `model` → `link` (rigid body) + `joint`. Each link
+  has three independent parts:
+  - `inertial` (mass and inertia tensor: how it moves);
+  - `collision` (simple shapes: how it touches);
+  - `visual` (looks only).
+  Cheap collision geometry plus detailed visuals is the norm.
+- **Inertia of a solid cube:** I = m·a²/6 on each axis. Wrong inertia is a top
+  cause of models spinning or exploding.
+- **static vs dynamic:** `<static>true</static>` = infinite mass, never
+  integrated. Use it for the ground and fixed props; it's cheap.
+- **World frame = ENU** (x East, y North, z Up). ArduPilot uses **NED**. The
+  conversion (x↔y swap, z negated) matters from Step 2 on.
+- **`model.config` + `GZ_SIM_RESOURCE_PATH`** make `model://name` URIs resolve.
+- **gz-transport:**
+  - Topics are publish/subscribe streams; services are request/response calls.
+  - Peers find each other by multicast discovery, then exchange data over TCP.
+  - Messages are protobuf (`gz.msgs.*`).
+- **Physics step vs real-time factor (RTF):**
+  - `max_step_size` (1 ms) sets accuracy.
+  - RTF sets pacing against the wall clock: 1 = real time; larger = faster if the
+    CPU can keep up.
+  - The sim time is exact either way, which is what makes lockstep possible.
+- **Semi-implicit (symplectic) Euler:** v += a·dt; x += v·dt.
+  - After n steps a body has fallen g·dt²·n(n+1)/2.
+  - Our measurement matched this to 0.1 mm (z = 2.1505 at t = 0.100 s), slightly
+    more than the continuous ½gt² = 0.0490.
+
+### Equations
+- Free-fall time: t = √(2h/g) = √(2·2.0/9.8) = 0.639 s (measured 0.640 s at
+  10 ms sampling; fitted g = 9.800).
+- Cube inertia: I = m·a²/6 = 2·0.4²/6 = 0.0533 kg·m².
+
+### Pitfalls hit in this step (all measured)
+- **Python gz-transport services deadlock when any Python subscription is
+  active.** `request()` holds the GIL; the process-wide receive thread blocks
+  trying to run a subscription callback, so the response is never processed.
+  - Every request timed out with a subscription active (even on another Node);
+    without one, requests take 0.2 s.
+  - Fix: run service calls in a separate *spawn*ed worker process.
+- **RTF=0 via `/set_physics` is silently ignored** (the reply still says
+  success). It does mean "unlimited" when written in the SDF. Use a large value
+  (1000) at runtime.
+- **`pose/info` is throttled to ~60 Hz of wall time**, whatever the sim speed.
+  At 20× real time that's one pose per ~0.3 s of sim time. It's useless as
+  per-step ground truth for fast RL, so Step 10 needs per-model pose publishers.
+  `clock` is published on every step.
+- **Clock and pose topics are independent.** Seeing sim_time = t doesn't mean
+  the pose for t has arrived. Wait on the pose's own header stamp.
+- **Teleporting (`set_pose`) doesn't zero velocity.** Remember this for Step 10.
+- **Background processes from non-interactive shells ignore SIGINT.** Install
+  explicit SIGINT/SIGTERM handlers.
+- **`pkill -f <pattern>` can match your own shell's command line.** Kill by PID.
+- **Spawn-mode multiprocessing can't re-import a `python - <<EOF` (stdin)
+  script.** Run real files or modules.
+- **`gz sdf -k`** catches misspelt element names, which Gazebo otherwise
+  ignores silently.
+
+### Interview Q&A
+- *What's the difference between collision and visual geometry?* — Collision
+  feeds the physics contact solver, so keep it simple (boxes, cylinders). Visual
+  is rendering only and can be a detailed mesh. Using a mesh as a collision
+  shape is slow and gives jittery contacts.
+- *Why does a 1 ms physics step matter for ArduPilot SITL?* — The JSON backend
+  exchanges sensor data and motor outputs every physics step in lockstep, and the
+  autopilot's fast loops expect ~1 kHz IMU data. A coarse step means aliased IMU
+  data and unstable control.
+- *How would you run Gazebo faster than real time for RL?* — Raise the RTF or
+  step manually (`multi_step`) while paused. Measure, though: the bottleneck
+  quickly becomes the per-call IPC overhead (~2 ms per service round trip) and
+  the sensor rendering, not the physics.
+- *What does ENU vs NED mean, and where does it bite?* — Gazebo uses x East,
+  y North, z Up; MAVLink/ArduPilot local frames use x North, y East, z Down.
+  Mixing them makes the drone fly mirrored or upside-down in altitude.

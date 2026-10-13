@@ -1,0 +1,87 @@
+<?xml version="1.0" ?>
+<!--
+  Base world for the landing project. Step 1: ground, light, physics, and the
+  system plugins we need now and in Steps 2-4. The drone (Step 2) and the rover
+  (Step 4) are spawned into this world, not hard-coded here, so the env can
+  choose and randomise them per episode.
+-->
+<sdf version="1.9">
+  <world name="lander_world">
+
+    <!-- 1 ms physics step. ArduPilot's JSON SITL backend expects ~1 kHz
+         sensor updates in lockstep, so we keep the step ardupilot_gazebo uses.
+         real_time_factor is a target, not a guarantee: 1.0 = try to match the
+         wall clock. Training will raise it (or set 0 = as fast as possible). -->
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Gazebo Sim is an Entity-Component-System: entities (models, links...)
+         hold components (pose, inertia...), and these *systems* run every step
+         and act on them. Without a system, a feature does nothing. -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <!-- Renders camera/depth sensors (needed from Step 3). ogre2 = the modern
+         PBR render engine. -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <!-- Provides the /world/<name>/create, /remove, /set_pose services. -->
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <!-- Publishes scene + poses (/world/<name>/pose/info) for the GUI and us. -->
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- IMU and NavSat (GPS) sensors on the drone only produce data if their
+         systems are loaded at world level. ArduPilot needs the IMU in Step 2. -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+
+    <!-- Gazebo's world frame is ENU (x=East, y=North, z=Up). This anchors the
+         world origin to a geodetic location (ArduPilot's default SITL home,
+         CMAC), so NavSat outputs are consistent with SITL's home. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.7 0.8 0.9 1</background>
+      <sky/>
+      <shadows>true</shadows>
+    </scene>
+
+    <!-- Directional light = sun (parallel rays, no falloff). Its direction and
+         intensity are what we will randomise for lighting robustness. -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground: static (infinite mass, never moves, cheap for physics).
+         A collision *plane* is infinite; the visual is a finite 200 m square. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
+          <material>
+            <ambient>0.35 0.4 0.3 1</ambient>
+            <diffuse>0.35 0.4 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

@@ -1,0 +1,19 @@
+# Gazebo settings shared by the sim tooling (Step 1+).
+world_name: lander_world                    # must match <world name=...> in the SDF
+world_file: gazebo/worlds/lander_world.sdf
+physics_step_s: 0.001                       # must match <max_step_size>
+startup_timeout_s: 30                       # wait this long for the world clock to appear
+service_timeout_ms: 3000                    # gz service request timeout
+# "Unthrottled" for tools that step the world themselves. rtf=0 only means
+# unlimited when written in the SDF; via the set_physics service it is ignored.
+max_speed_rtf: 1000.0
+verbosity: 2                                # gz sim -v (0 silent .. 4 debug)
+
+# Step 1 physics check: free-fall of the test crate, compared to h = g t^2 / 2.
+drop_test:
+  model_uri: model://test_crate
+  name: crate
+  half_size_m: 0.2                          # crate centre rests at z = half_size
+  drop_height_m: 2.0                        # height of the crate's bottom face at release
+  gravity_mps2: 9.8                         # SDF default world gravity
+  tolerance_s: 0.01                         # allowed |t_measured - t_theory| (10 physics steps)

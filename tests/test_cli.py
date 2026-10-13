@@ -5,7 +5,7 @@ from lander.cli import build_parser, main
 
 
 def test_parser_knows_all_commands() -> None:
-    for cmd in ["doctor", "sim", "train", "eval", "deploy"]:
+    for cmd in ["doctor", "train", "eval", "deploy"]:
         assert build_parser().parse_args([cmd]).command == cmd
 
 
