@@ -111,7 +111,8 @@ Humble targets 22.04 only, so on the Spark (24.04) we would use Jazzy or a
 | Lockstep speed ceiling (no camera) | ~12x real time (RTF/speedup 20) | Stage B gives at most ~12 sim-s per wall-s, before rendering costs |
 | SITL boot -> armable (EKF + GPS) | ~40 s sim (41 s wall at 1x, 4-5 s wall at 20-100x) | a SITL restart per episode costs >= 4 s wall |
 | Gazebo pose -> NED vs SITL LOCAL_POSITION_NED | < 1 cm N/E, ~5 cm D | ENU->NED mapping (N,E,D) = (y, x, -z) verified |
-| SITL killed while connected | Gazebo blocks (lock-step resend loop) | Step 10 must restart SITL and Gazebo together, or not kill SITL |
+| SITL killed while connected | Gazebo freezes (0.00x, measured); resumes at 1.0x when a new SITL connects | "restart SITL only" is a viable reset; Gazebo need not restart |
+| Drone spawned, SITL not yet connected | 0.68x real time (plugin waits 1 ms/step for packets) | start SITL promptly after spawning |
 
 **Extra baseline (added in Step 2):** ArduPilot's built-in precision landing
 (`PLND_*`, `PLND_OPTIONS` bit 0 = moving target), fed with `LANDING_TARGET`

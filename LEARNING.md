@@ -174,11 +174,12 @@ One section per step: concepts, equations, pitfalls, interview Q&A.
   - In `PostUpdate`, it sends the new state.
   - SITL waits for that state before computing the next PWM. Neither side can
     run ahead.
-  - Consequence 1: if SITL dies or is paused, **Gazebo freezes**, because the
-    plugin re-sends the last state forever instead of timing out (lock_step
-    branch). This matters for resets in Step 10.
+  - Consequence 1: if SITL dies, **Gazebo freezes**, because the plugin
+    re-sends the last state forever instead of timing out (lock_step branch).
+    Measured: 1.00× → 0.00×, and back to 1.00× as soon as a new SITL
+    connects. So "restart only SITL" is a viable reset for Step 10.
   - Consequence 2: before SITL connects, the plugin waits 1 ms per step for a
-    packet, which caps the free-running sim near real time.
+    packet. Measured: 0.68× real time with no SITL attached.
 - **How the motors work in Gazebo:**
   - PWM 1100–1900 → normalised 0–1 → × `multiplier` (838 rad/s; negative for
     the counter-rotating props) → target rotor joint velocity.
