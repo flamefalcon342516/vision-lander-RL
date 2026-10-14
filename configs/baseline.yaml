@@ -1,0 +1,19 @@
+# Classical visual-servoing baseline (lander/baselines/pid.py). Values below are the
+# result of `lander/baselines/tune.py` (120-trial random search, Stage A, full
+# scenario mix with DR): success 0.163 (hand-set) -> 0.328 (confirmed, fresh seeds).
+# Tuning the baseline is part of a fair comparison: PPO's hyperparameters were
+# tuned too. Note the search chose descent_min > descent_max, i.e. a constant
+# ~0.57 m/s descent inside the alignment cone.
+kp_xy: 1.003               # m/s of correction per m of horizontal error
+kd_xy: 0.188               # damping on (drone velocity - rover velocity estimate)
+feedforward: 1.004         # gain on the estimated rover velocity (1 = full)
+align_radius_m: 0.198      # descend only when |xy error| < align_radius + align_per_m * h
+align_per_m: 0.173         
+descent_gain: 0.682        # vz = clip(descent_gain * h, descent_min, descent_max)
+descent_min_mps: 0.583     
+descent_max_mps: 0.572     
+lost_hold_s: 0.6           # marker lost longer than this -> stop descending
+lost_climb_s: 2.437        # ...longer than this -> climb to re-acquire
+climb_mps: 0.6             
+climb_ceiling_m: 4.5       # never climb to re-acquire above this estimated height
+                           # (detection fails beyond ~6-7 m, measured; climbing loses it for good)
