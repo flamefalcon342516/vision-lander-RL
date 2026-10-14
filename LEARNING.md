@@ -280,3 +280,33 @@ Total 4039. To command yaw_rate too, clear bit 11 → 1991.
 - **Observed:** a `takeoff 4` from the rover deck levelled off at 3.36 m above
   the EKF origin. Don't rely on takeoff altitude; the env commands velocities
   and uses ground truth.
+
+---
+
+## Step 4 — Rover with ArUco marker and motion controller
+
+- **The rover is a moving platform, not a vehicle study.** Its motion is made
+  exact: gravity off, chassis floating 2 cm above the ground (no wheel
+  friction), and `VelocityControl` sets the body twist from
+  `/model/rover/cmd_vel` every step.
+  - Measured: 1 m/s commanded for 3 s of sim → 2.93 m. The small shortfall is
+    command start-up latency.
+- **One path generator for both stages** (`lander/envs/rover.py`): a
+  vectorised unicycle (x, y, heading; inputs v, ω).
+  - Stage A integrates it directly.
+  - Stage B sends the same (v, ω) to Gazebo.
+  - Types: static, straight, circle (ω = v/R), figure-8 (ω sign flips every full
+    circle), random (Ornstein–Uhlenbeck turn rate and speed).
+- **Exact arc integration:** with v and ω held constant over dt,
+  Δx = v/ω·(sin(θ+ωdt) − sin θ) and Δy = −v/ω·(cos(θ+ωdt) − cos θ).
+  The tests check that a circle closes to 1e-9 m.
+- **Marker texture:** generated with `cv2.aruco.generateImageMarker`.
+  - DICT_4X4_50, id 0: large cells, so it's readable from altitude.
+  - A 0.50 m black square plus a 5 cm white quiet zone. The detector *needs*
+    the quiet zone to find the outer black border.
+  - Applied as a PBR `albedo_map` on a 1 mm visual box above the deck.
+- **Ground truth:** the `PosePublisher` system with `update_frequency` 50
+  publishes `/model/<name>/pose` at 50 Hz of **sim** time (measured exactly
+  50.0 Hz). That makes it usable for rewards, unlike `pose/info`.
+- **Inertia of a box:** Ixx = m(b²+c²)/12 and so on (chassis 40 kg: 3.59,
+  5.06, 8.13 kg·m²).
