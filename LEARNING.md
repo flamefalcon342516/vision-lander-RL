@@ -379,3 +379,224 @@ Total 4039. To command yaw_rate too, clear bit 11 → 1991.
 - *Why put the KF in the level frame?* — The frame is gravity-aligned, so
   height and horizontal motion separate cleanly. It also matches the action
   frame, so the policy maps estimate → command with no extra rotation.
+
+---
+
+## Step 6 — Classical baseline: visual servoing + gated descent
+
+- **Control law, acting on the same observation as the policy:**
+  `v_xy = ff·v̂_rover + kp·x̂ − kd·(v_drone − v̂_rover)`.
+  - The feed-forward term cancels the rover's motion.
+  - The P term closes the remaining offset.
+  - The D term damps the relative velocity.
+- **Gated descent:** descend only while |x̂_xy| < r₀ + k·h (an alignment
+  *cone*: loose high up, tight near the deck).
+  - Marker lost > 0.6 s → stop descending.
+  - Lost > 2.4 s → climb, but never above 4.5 m, because detection fails beyond
+    6–7 m (measured) and climbing further would lose the marker for good.
+- **A fair baseline needs tuning too.** A 120-trial random search in Stage A
+  (full scenario mix with DR) raised success from 0.163 to 0.328, re-scored
+  on fresh seeds because random search over-fits its own evaluation noise.
+- **Where it fails (Stage A, DR on):** it holds 44–56% on static and straight
+  paths at any speed, but collapses on curves: circle at 1.5 m/s 16%, at
+  2.5 m/s 0%.
+  - The KF's random-walk model of rover velocity lags a turning rover.
+  - The feed-forward then points the wrong way.
+- **Interview Q&A:** *Why not just a PID on pixel error?* — Pixel error mixes
+  attitude, height and position. The KF estimate in the level frame separates
+  them, and gives the rover velocity for feed-forward, which a pure feedback
+  loop can't track without steady-state lag.
+
+---
+
+## Step 7 — RL theory: function approximation → policy gradients → actor-critic → PPO
+
+### 1. Function approximation (why tables stop working)
+- Value/policy iteration store V(s) in a table. Our state is continuous,
+  13-dimensional, so there's no table.
+- Instead use a parametric function V_φ(s) (a neural network) and fit it by
+  regression on targets. **Generalisation** is the point: similar states get
+  similar values without being visited.
+- **The price:** fitting moves V everywhere at once, so the "contraction"
+  guarantee of tabular VI is gone. Bootstrapped targets plus function
+  approximation plus off-policy data can diverge (the "deadly triad"). PPO
+  avoids most of this by being on-policy.
+
+### 2. Policy gradients (optimise the policy directly)
+- Policy π_θ(a|s): here a Gaussian. The network outputs the mean μ_θ(s), and
+  log σ is a learned parameter.
+- Objective: J(θ) = E_{τ∼π_θ}[Σ_t γᵗ r_t].
+- **Policy gradient theorem:**
+  ∇_θ J = E[ Σ_t ∇_θ log π_θ(a_t|s_t) · Ψ_t ], with Ψ_t = the return from t
+  onwards (REINFORCE).
+- **Intuition:** make actions that led to good outcomes more likely, in
+  proportion to how good they were. No model of the dynamics is needed, which
+  is why it works through ArduPilot as a black box.
+- **Baseline:** subtracting any b(s) leaves the gradient unbiased and cuts
+  variance: Ψ_t = G_t − V(s_t).
+
+### 3. Actor-critic and the advantage
+- **Advantage:** A(s,a) = Q(s,a) − V(s), i.e. how much better this action was
+  than average.
+- The actor is π_θ; the critic V_φ is trained by regression to returns. The
+  critic provides the baseline (and bootstraps).
+- **TD error:** δ_t = r_t + γ V(s_{t+1}) − V(s_t). This is a one-step,
+  low-variance, biased estimate of A.
+
+### 4. GAE (Generalised Advantage Estimation)
+- Â_t = Σ_l (γλ)^l δ_{t+l}.
+- λ = 0 gives the one-step TD error (low variance, biased); λ = 1 gives the
+  Monte-Carlo return minus V (unbiased, high variance). We use λ = 0.95.
+- At a **time-limit truncation** the episode didn't really end, so bootstrap
+  with γ·V(s_T). SB3 does this when info["TimeLimit.truncated"] is set, and
+  both our envs set it.
+
+### 5. PPO (Proximal Policy Optimisation)
+- **Problem:** a big policy step on one batch of data can wreck the policy.
+  Data is collected on-policy, so a bad policy then also collects bad data.
+- **Ratio:** r_t(θ) = π_θ(a_t|s_t) / π_θ_old(a_t|s_t).
+- **Clipped surrogate:**
+  L^CLIP = E[ min( r_t Â_t, clip(r_t, 1−ε, 1+ε) Â_t ) ], with ε = 0.2.
+  - The objective stops rewarding moves beyond ±20% probability change.
+  - That makes it a cheap, first-order trust region (cf. TRPO's KL
+    constraint).
+- **Full loss:** −L^CLIP + c_v·(V_φ(s) − V_target)² − c_e·H[π_θ(·|s)].
+  - The entropy bonus (c_e) delays premature convergence. We use 0 and rely on
+    the learned σ (initialised at e^−0.5 = 0.61).
+- **Loop:** collect n_envs × n_steps transitions → compute GAE → K epochs of
+  minibatch SGD → repeat. `target_kl` stops the epochs early if the policy
+  moves too far.
+
+### Toy run (measured)
+SB3 PPO on CartPole-v1 (CPU), with mean evaluation return after each chunk:
+437 @ 10k steps, 496 @ 20k, 500 (the maximum) from 40k steps onward
+(`python -m lander.training.toy_cartpole`).
+
+### Interview Q&A
+- *Why does PPO clip the ratio rather than the advantage?* — The ratio
+  measures how far the new policy has moved. Clipping it bounds the update size
+  regardless of the advantage's scale.
+- *Why is PPO on-policy, and what does that cost?* — The surrogate is valid
+  only near π_old, so old data is thrown away after K epochs. That's sample
+  inefficient, which is exactly why we built a 176k-steps/s simulator.
+- *What does γ really set?* — The effective horizon 1/(1−γ). It has to cover
+  the delay between a decision and its consequence. See the Step 9 pitfall.
+
+---
+
+## Step 8 — Stage A fast env + system identification
+
+- **System identification:** command velocity steps in GUIDED (streamed at
+  10 Hz) and fit
+  `a_des = clip((u(t−d) − v)/τ, ±a_max); ȧ = clip((a_des − a)/dt, ±j); v̇ = a`.
+  - Horizontal: τ = 0.35 s, d = 0.07 s, a_max = 3.0 m/s², j = 4 m/s³
+    (ArduPilot `PSC_JERK_NE` = 5); RMSE 0.044 m/s.
+  - Vertical: τ = 0.15 s, a_max = 1.0, RMSE 0.013 m/s.
+  - Tilt = 0.96·atan(a/g).
+- **Sysid found a real bug:** `WP_YAW_BEHAVIOR` (default 2) yawed the drone
+  toward the direction of travel. A −3 m/s x command produced ~2 m/s of y
+  velocity. Now set to 0 in `configs/ardupilot/lander.parm` (also needed on
+  the real drone).
+- **Why jerk matters beyond fit quality:** without it, Stage A's acceleration
+  (and therefore camera tilt) stepped 15° instantly. That injected large fake
+  measurement errors, and even the PID failed in Stage A while succeeding in
+  Gazebo.
+- **Image-time attitude:** de-rotating a 165 ms-old image with the *current*
+  attitude during a 15° manoeuvre moves a marker seen from 6 m by ~1.6 m.
+  - Both envs, and the runtime, now look up the attitude at the image
+    timestamp (`MavLink.attitude_at`).
+  - That needs one clock for camera stamps and attitude samples: sim time in
+    Stage B, `time.monotonic` on hardware.
+- **Detection model fitted to Gazebo:**
+  - P(detect) = sigmoid((side_px − 24.5)/1.5), giving 74% at 26 px and 26% at
+    22 px.
+  - Plus FOV (all four corners inside the image), latency 0.02–0.165 s, lateral
+    noise ∝ h, depth noise ∝ h², and a +2% depth bias (rendering shrinks the
+    marker by ~0.8 px).
+- **Throughput:** 1.2k steps/s at N=1, 46k at N=64, **176k at N=1024** (no
+  Python loop over envs). Gazebo + SITL runs ~10 steps/s.
+- **Identical spaces by construction:** both envs call `task.build_obs`,
+  `task.reward`, `task.check_termination` and the same `MarkerKF` and
+  `RoverFleet`.
+
+---
+
+## Step 9 — Reward design, PPO training, curriculum
+
+### Reward terms (configs/task.yaml)
+| term | form | why | trade-off |
+|---|---|---|---|
+| shaping | γΦ(s′) − Φ(s), Φ = −(\|d_xy\| + h + 2·\|v_rel\|·e^{−h/2}) | progress signal every step (alignment, descent, velocity matching near the deck) | potential-based, so it can't change the optimal policy (Ng 1999); the weights only change learning speed |
+| marker lost | −0.05 per step not detected | keep the marker in view | too large → the policy refuses to descend into the blind last 0.5 m |
+| smoothness | −0.02·\|a_t − a_{t−1}\|² | less chatter = less tilt = better detections | too large → sluggish tracking |
+| time | −0.01 per step | land rather than loiter | too large → reckless dives |
+| success | +50 + 20·(1 − xy_err/0.25) | the goal, plus precision | |
+| miss | −10 | touched down outside tolerances | must be > timeout, or the policy never tries |
+| timeout / crash / OOB | −30 | never landing is a failure (battery) | |
+
+### Reward/MDP iterations (real, measured; kept as evidence)
+1. **v1** (miss −30, timeout 0, γ = 0.99): 0% success at 3M steps. Timeouts
+   rose to 99%, and the policy learned to hover. Missing cost −30 while
+   hovering cost ~nothing (`results/runs/reward_v1_s0`).
+2. Timeout −30 and miss −15, still γ = 0.99: still 0% at 2M. The policy
+   descended at 0.1–0.2 m/s and timed out. **Cause:** γ^400 ≈ 0.02, so a
+   timeout 40 s away is invisible to a 10 s horizon, while a miss is
+   immediate.
+3. **γ = 0.995** (20 s horizon), 30 s episodes, miss −10: the policy learns
+   (0 → 40% static at 6M). But 77% of misses were sliding > 0.5 m/s, so the
+   velocity-matching potential weight went 0.5 → 2.0.
+4. **Curriculum with a DR ramp:** with full DR from the start, even the tuned
+   PID lands only 59% on a static rover (84% without DR), so the 80% gate
+   could never open. Stages now carry `dr_level`, and wind, lighting and
+   noise come last. Result: 66% static by 5M, then promotion.
+
+### PPO hyperparameters (configs/ppo.yaml)
+- 256 envs × 128 steps = 32,768 transitions per update; minibatch 4096 ×
+  5 epochs.
+- lr 3e-4, decayed linearly. clip 0.2. GAE λ 0.95. vf_coef 0.5. Gradient norm
+  0.5. target_kl 0.05.
+- Separate 256×256 tanh MLPs for the actor and the critic. log σ starts at
+  −0.5.
+- Reward normalisation (VecNormalize). Observations are already scaled to
+  ~[−1, 1] in `task.build_obs`, so no observation normalisation; that keeps
+  ONNX export simple.
+- **Measured:** the GPU gives 41k steps/s vs 16.6k on CPU, despite SB3's
+  warning that MLP policies are usually faster on CPU. The large minibatches
+  make the difference. Measure, don't assume.
+
+### Reading TensorBoard
+- `outcome/*`: fractions of finished episodes by outcome.
+- `curriculum/stage`: steps up when the gate opens. A temporary success dip
+  right after promotion is expected.
+- `landing/*`: precision of successful landings.
+- `rollout/ep_rew_mean`: **beware.** In v1 it *rose* while success stayed at
+  0%, because the policy got better at the wrong thing. Always watch the task
+  metric, not just the return.
+
+---
+
+## Step 10 — Gazebo Gymnasium env + reset strategy
+
+- **Reset options (measured where possible):**
+  1. Restart SITL each episode: ≥ 4 s of wall time just for EKF convergence
+     even at 20–100×, plus arming and takeoff.
+  2. Reset the Gazebo world: SITL isn't reset with it, and Gazebo freezes
+     whenever SITL is down (lockstep).
+  3. Teleport the drone: the EKF sees a position jump, and teleporting doesn't
+     zero velocity.
+  4. **Re-position in flight (chosen):** SITL keeps running. Stop the rover
+     (teleporting the rover is fine, since nothing estimates its state), then
+     fly a GUIDED position setpoint to a random start. **Measured: 0.7–1.2 s
+     wall per reset at 5×.**
+- **Virtual touchdown:** the episode ends a few cm above the deck, so there's
+  no physical contact, flipping or disarming. After the episode, the env
+  immediately commands a climb.
+- **Hard reset** if the drone flips or disarms: remove the drone *while SITL
+  still runs* (otherwise lockstep freezes Gazebo), stop SITL, respawn, restart.
+- **Timing:** one env step = 0.1 s of sim ≈ 21 ms wall at 5×, i.e. ~10× slower
+  than one Stage A env, and ~20,000× slower than vectorised Stage A.
+- **Ground truth for reward/metrics:** sim-time `PosePublisher` topics. The
+  policy only ever sees the camera → ArUco → KF estimate.
+- **Detection range** (0.5 m marker, 640 px, 90° FOV): 100% ≤ 5 m, 74% at 6 m,
+  26% at 7 m, 0% ≥ 8 m. Start heights were set to 3–6 m accordingly. A real
+  system would add a larger outer marker for high-altitude acquisition.
