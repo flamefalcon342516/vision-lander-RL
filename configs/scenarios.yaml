@@ -19,8 +19,8 @@ curriculum:
       speed_mps: [0.0, 0.0]
       dr_level: 0.0
     - name: slow_straight
-      probs: [0.2, 0.8, 0, 0, 0]
-      speed_mps: [0.2, 1.0]
+      probs: [0.3, 0.7, 0, 0, 0]
+      speed_mps: [0.1, 0.8]
       dr_level: 0.0
     - name: fast_straight
       probs: [0.1, 0.9, 0, 0, 0]

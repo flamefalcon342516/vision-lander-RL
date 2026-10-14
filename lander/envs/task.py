@@ -116,7 +116,12 @@ def reward(prev: StepTruth, cur: StepTruth, outcome: np.ndarray, visible: np.nda
     precision = np.clip(1 - dxy / cfg["touchdown"]["max_xy_err_m"], 0, 1)
     terminal = np.where(outcome == SUCCESS, r["r_success"] + r["r_precision"] * precision, 0.0)
     terminal = np.where(np.isin(outcome, (CRASH, OUT_OF_BOUNDS)), r["r_fail"], terminal)
-    terminal = np.where(outcome == MISS, r["r_miss"], terminal)
+    td = cfg["touchdown"]
+    vxy = np.linalg.norm(cur.v_rel[:, :2], axis=1)
+    miss_pen = (r["r_miss"]
+                + r["r_miss_per_m"] * np.clip(dxy - td["max_xy_err_m"], 0, 2)
+                + r["r_miss_per_mps"] * np.clip(vxy - td["max_rel_vxy_mps"], 0, 2))
+    terminal = np.where(outcome == MISS, miss_pen, terminal)
     terminal = np.where(outcome == TIMEOUT, r["r_timeout"], terminal)
     if terms is not None:
         terms.update(shape=shape, lost=lost, smooth=smooth, time=time_pen, terminal=terminal)

@@ -41,7 +41,12 @@ reward:
   r_success: 50.0            # touchdown within tolerances
   r_precision: 20.0          # extra * (1 - xy_err / max_xy_err) on success
   r_fail: -30.0              # crash, out of bounds
-  r_miss: -10.0              # touchdown outside tolerances: bad, but better than never trying
+  r_miss: -5.0               # touchdown outside tolerances: bad, but better than never trying...
+  r_miss_per_m: -8.0         # ...and GRADED by how far outside tolerance (xy, capped at 2 m)
+  r_miss_per_mps: -4.0       # ...and by excess relative speed (capped at 2 m/s). Reward v3 had a
+                             # flat -10: shaping refunds the potential at any terminal, so a
+                             # 2.7 m miss scored the same as a 0.3 m one -> PPO dove at moving
+                             # rovers (0% for 5M steps, results/runs/reward_v3_s0).
   r_timeout: -30.0           # never landing is a failure too (battery). Reward v1 had 0 here
                              # and PPO learned to hover until timeout (0% success at 3M steps,
                              # results/runs/reward_v1_s0): misses cost -30, hovering ~nothing.

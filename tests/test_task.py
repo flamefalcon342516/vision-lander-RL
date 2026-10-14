@@ -79,3 +79,16 @@ def test_action_scaling_and_clipping():
     v = tk.action_to_velocity(np.array([[1.0, -2.0, 0.5]]), CFG)[0]
     assert np.allclose(v, [CFG["action"]["v_xy_max_mps"], -CFG["action"]["v_xy_max_mps"],
                            0.5 * CFG["action"]["v_z_max_mps"]])
+
+
+def test_miss_penalty_is_graded_but_never_worse_than_timeout():
+    """Reward v3 lesson: a flat miss penalty gave no gradient from far to near misses."""
+    prev = truth([0.5, 0, 0.5])
+    near = _r(prev, truth([0.3, 0, 0.2]), tk.MISS)
+    far = _r(prev, truth([2.5, 0, 0.2]), tk.MISS)
+    terms_far, terms_worst = {}, {}
+    _r(prev, truth([2.5, 0, 0.2]), tk.MISS, terms=terms_far)
+    _r(prev, truth([9.0, 0, 0.2], v_rel=[5, 0, 0]), tk.MISS, terms=terms_worst)
+    assert terms_far["terminal"][0] < -5.0                     # graded below the base penalty
+    assert terms_worst["terminal"][0] > CFG["reward"]["r_timeout"]   # trying beats never landing
+    assert near > far or terms_far["terminal"][0] < 0
