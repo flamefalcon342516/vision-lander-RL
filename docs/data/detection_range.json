@@ -1,0 +1,6 @@
+{"source": "Step 10 hover sweep in Gazebo (lander/sim hover at fixed heights over static rover, 32-35 frames each)",
+ "height_m":  [2, 3, 4, 5, 6, 7, 8, 9, 10, 12],
+ "detect":    [32, 32, 33, 32, 25, 9, 0, 0, 0, 0],
+ "tries":     [32, 32, 33, 32, 34, 35, 35, 35, 35, 35],
+ "side_px":   [80.4, 54.0, 40.1, 31.9, 26.3, 22.1, null, null, null, null],
+ "depth_bias_m": [0.02, 0.042, 0.067, 0.091, 0.142, 0.25, null, null, null, null]}
