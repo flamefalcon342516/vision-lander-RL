@@ -1,0 +1,10 @@
+# Stage B env specifics (lander/envs/gazebo_env.py).
+rover_spawn_z_m: 0.02           # rover model origin height (chassis floats 2 cm above ground)
+deck_above_rover_origin_m: 0.30 # chassis link +0.16, half-height 0.14 (model.sdf)
+drone_spawn_xy_m: [-4.0, 0.0]   # ENU, away from the rover so takeoff is clear
+takeoff_alt_m: 8.0
+takeoff_wait_s: 8.0             # sim seconds after the takeoff command
+rover_recenter_dist_m: 25.0     # teleport the rover home if it drifted farther
+reposition_tol_m: 0.3           # start the episode when within this of the start point...
+reposition_vel_tol_mps: 0.3     # ...and slower than this
+reposition_timeout_s: 25.0      # sim seconds; start anyway after this

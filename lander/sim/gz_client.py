@@ -200,11 +200,12 @@ class GzWorld:
         with self._lock:
             self._poses.pop(name, None)
 
-    def set_pose(self, name: str, at: Vec3) -> None:
+    def set_pose(self, name: str, at: Vec3, yaw_rad: float = 0.0) -> None:
         """Teleport a model. Velocity is NOT reset by this - remember for Step 10."""
         req = Pose(name=name)
         req.position.x, req.position.y, req.position.z = at.x, at.y, at.z
-        req.orientation.w = 1.0
+        req.orientation.w = math.cos(yaw_rad / 2)
+        req.orientation.z = math.sin(yaw_rad / 2)
         self._call("set_pose", req)
 
     def pause(self, paused: bool = True) -> None:
