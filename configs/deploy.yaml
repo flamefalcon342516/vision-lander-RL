@@ -11,7 +11,7 @@ runtime:
   max_duration_s: 60.0
 
 safety:
-  v_xy_max_mps: 4.0
+  v_xy_max_mps: 6.0         # rover feed-forward (<=3) + correction (<=4) can exceed 4
   v_up_max_mps: 1.5
   v_down_max_mps: 1.5
   alt_ceiling_m: 15.0

@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             pol = ev_mod.pid_policy(cfg)
         else:
             p = Path(args.policy)
-            pol = ev_mod.ppo_policy(p / "final.zip" if p.is_dir() else p)
+            pol = ev_mod.load_policy(cfg, p)
         if args.stage == "fast":
             recs = ev_mod.eval_fast(pol, cfg, args.episodes, args.seed, dr=not args.no_dr)
         else:
@@ -137,6 +137,8 @@ def _deploy(args) -> int:
     cfg = load_all()
     run = Path("results/runs") / args.run
     onnx = Path(args.onnx) if args.onnx else run / "policy.onnx"
+    meta = json.loads((run / "meta.json").read_text()) if (run / "meta.json").exists() else {}
+    res_scale = meta.get("residual_scale") if meta.get("residual") else None
     if args.action == "export":
         from lander.deploy.export import export_onnx
 
@@ -152,7 +154,8 @@ def _deploy(args) -> int:
         from lander.deploy.rehearsal import rehearse
 
         out = Path("results/rehearsal")
-        res = rehearse(cfg, onnx, args.kind, args.speed, args.episodes, out, rtf=args.rtf)
+        res = rehearse(cfg, onnx, args.kind, args.speed, args.episodes, out, rtf=args.rtf,
+                       residual_scale=res_scale)
         (out / f"summary_{args.kind}_{args.speed}.json").write_text(json.dumps(res, indent=1))
         return 0
     # hardware: real camera + serial link. Never exercised in this repo's tests.
@@ -164,6 +167,7 @@ def _deploy(args) -> int:
     mav = MavLink(d["hardware_url"], rates_hz={"LOCAL_POSITION_NED": 50, "ATTITUDE": 50, "HEARTBEAT": 2})
     frames = CvFrameSource(d["camera_device"], cfg["camera"]["width"], cfg["camera"]["height"])
     rt = Runtime(cfg, onnx, frames, mav, SafetyConfig(**d["safety"]), RuntimeConfig(**d["runtime"]),
-                 Path("results/flight_logs") / f"flight_{int(__import__('time').time())}.csv")
+                 Path("results/flight_logs") / f"flight_{int(__import__('time').time())}.csv",
+                 residual_scale=res_scale)
     print(json.dumps(rt.run(), indent=1))
     return 0

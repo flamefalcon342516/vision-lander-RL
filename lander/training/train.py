@@ -65,6 +65,11 @@ def train(cfg: dict, run_dir: Path, seed: int, curriculum: bool, dr: bool,
     torch.set_num_threads(4)
     cur = Curriculum(cfg["scenarios"], enabled=curriculum)
     venv = FastVecEnv(p["n_envs"], cfg, seed=seed, curriculum=cur, dr=dr)
+    res = p.get("residual", {})
+    if res.get("enabled", False):
+        from lander.training.residual import ResidualVecEnv
+
+        venv = ResidualVecEnv(venv, cfg, res["scale"])
     venv = VecNormalize(venv, norm_obs=False, norm_reward=p["norm_reward"], gamma=cfg["task"]["gamma"])
     lr0 = p["learning_rate"]
     model = PPO(
@@ -76,6 +81,17 @@ def train(cfg: dict, run_dir: Path, seed: int, curriculum: bool, dr: bool,
                            activation_fn=getattr(torch.nn, {"tanh": "Tanh", "relu": "ReLU"}[p["activation"]]),
                            log_std_init=p["log_std_init"]),
         tensorboard_log=str(run_dir / "tb"), seed=seed, device=p["device"], verbose=0)
+    if res.get("enabled", False):
+        from lander.training.residual import zero_init_residual
+
+        zero_init_residual(model)
+    if p.get("warmstart", {}).get("enabled", False):
+        from lander.training.warmstart import collect, pretrain
+
+        w = p["warmstart"]
+        data = collect(cfg, w["collect_steps"], w["collect_envs"], w["noise_std"], seed)
+        stats = pretrain(model, data, w["epochs"], w["lr"], p["device"])
+        (run_dir / "warmstart.json").write_text(json.dumps(stats, indent=2))
     steps = total_steps or p["total_timesteps"]
     cb = LandingStats(cur, run_dir, p["eval_every_rollouts"], p["checkpoint_every"])
     t0 = time.time()
@@ -83,6 +99,7 @@ def train(cfg: dict, run_dir: Path, seed: int, curriculum: bool, dr: bool,
     model.save(run_dir / "final")
     venv.save(str(run_dir / "vecnorm_final.pkl"))
     meta = {"seed": seed, "curriculum": curriculum, "dr": dr, "steps": steps,
+            "residual": res.get("enabled", False), "residual_scale": res.get("scale"),
             "wall_s": time.time() - t0, "final_stage": cur.stage, "stage_log": cb.stage_log}
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return run_dir / "final.zip"

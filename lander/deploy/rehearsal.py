@@ -24,7 +24,7 @@ from lander.mav import MavLink
 
 
 def rehearse(cfg: dict, onnx_path: Path, kind: str, speed: float, episodes: int, out_dir: Path,
-             rtf: float = 5.0, seed: int = 7, log=print) -> list[dict]:
+             rtf: float = 5.0, seed: int = 7, log=print, residual_scale: float | None = None) -> list[dict]:
     env = GazeboLandingEnv(cfg, rtf=rtf, seed=seed)
     env.set_scenario(kind, speed)
     results = []
@@ -49,7 +49,8 @@ def rehearse(cfg: dict, onnx_path: Path, kind: str, speed: float, episodes: int,
                           clock=lambda: env.world.sim_time)
             frames = GzFrameSource(cfg["camera"]["image_topic"], lambda: env.world.sim_time)
             rt = Runtime(cfg, onnx_path, frames, mav, SafetyConfig(**cfg["deploy"]["safety"]),
-                         RuntimeConfig(**cfg["deploy"]["runtime"]), out_dir / f"rehearsal_{kind}_{speed}_{ep}.csv")
+                         RuntimeConfig(**cfg["deploy"]["runtime"]), out_dir / f"rehearsal_{kind}_{speed}_{ep}.csv",
+                         residual_scale=residual_scale)
             res = rt.run()
             # let the drone settle on the deck, then measure where it is
             t_end = env.world.sim_time + 3.0

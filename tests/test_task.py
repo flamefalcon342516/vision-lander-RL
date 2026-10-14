@@ -92,3 +92,11 @@ def test_miss_penalty_is_graded_but_never_worse_than_timeout():
     assert terms_far["terminal"][0] < -5.0                     # graded below the base penalty
     assert terms_worst["terminal"][0] > CFG["reward"]["r_timeout"]   # trying beats never landing
     assert near > far or terms_far["terminal"][0] < 0
+
+
+def test_descending_while_misaligned_loses_potential():
+    """Reward v4 lesson: descent must not pay when far off-centre (alignment cone)."""
+    far_hi, far_lo = truth([1.0, 0, 3.0]), truth([1.0, 0, 0.5])
+    near_hi, near_lo = truth([0.1, 0, 3.0]), truth([0.1, 0, 0.5])
+    assert tk.potential(far_lo, CFG)[0] < tk.potential(far_hi, CFG)[0]
+    assert tk.potential(near_lo, CFG)[0] > tk.potential(near_hi, CFG)[0]

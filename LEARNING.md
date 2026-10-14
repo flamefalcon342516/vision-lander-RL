@@ -600,3 +600,37 @@ SB3 PPO on CartPole-v1 (CPU), with mean evaluation return after each chunk:
 - **Detection range** (0.5 m marker, 640 px, 90° FOV): 100% ≤ 5 m, 74% at 6 m,
   26% at 7 m, 0% ≥ 8 m. Start heights were set to 3–6 m accordingly. A real
   system would add a larger outer marker for high-altitude acquisition.
+
+### Step 9 continued: why PPO from scratch failed, and residual RL (the decisive iteration)
+These measurements are the core research finding of the project.
+
+| Attempt | Change | Result (Stage A) |
+|---|---|---|
+| v1 | miss −30, timeout 0, γ 0.99 | 0% success: hovers to timeout |
+| v2 | timeout −30, miss −15 | 0%: descends at 0.1–0.2 m/s and times out (γ^400 ≈ 0.02 hides the timeout) |
+| v3 | γ 0.995, 30 s episodes, phi_v 2 | 66% static, then **0% on moving rovers** at stage 1 for 5M steps |
+| v4 | graded miss penalty | same: dives at full speed from any offset |
+| v4 + cone | horizontal error weighted by 1 + 4/(h + 0.5) | same, ~0.2 on stage 1 |
+| relobs | relative-velocity obs + rover-relative action (speed invariance) | static 75% → **0.1 m/s rover 4%** (PID 84%) |
+| low noise | std 0.6 → 0.2, action range 4 → 2.5 m/s | tracks within 0.1 m but **never descends** (100% timeouts) |
+| BC warm start | clone the PID, then PPO | static 0.93 (beats the PID), moving 0.11; under full DR 0.11 vs PID 0.29 |
+| **residual** | **PPO learns a correction on top of the PID, zero-initialised** | **0.33 vs PID 0.29 at 8M steps; circle 0.27 vs 0.17, figure-8 0.26 vs 0.20, random 0.19 vs 0.13** |
+
+**Diagnosis:**
+- Landing on a moving target needs *simultaneous* precise tracking and committed descent.
+- PPO found one half at a time: "dive" (works on static rovers) or "hover-and-track" (never lands).
+- Each is a local optimum, and the joint behaviour is rarely reached by Gaussian exploration.
+- A curriculum that starts static actively *taught* the dive and then failed to unlearn it, an example of catastrophic interference.
+- **Isolation test:** from a behaviour-cloned start on a fixed 0.4 m/s scenario, PPO improved 0.47 → 0.67, while lr = 0 stayed at 0.47. So PPO works on moving rovers; the problem was the starting basin.
+
+**Residual policy learning:** a = clip(a_PID + 0.5·a_res).
+- The residual's output layer starts at zero, so training begins *exactly* at the PID, with no imperfect clone.
+- The network only has to learn where the PID is wrong (turns, fast rovers). That's a smaller, better-conditioned problem.
+- It's deployed the same way: numpy PID + ONNX residual in the runtime.
+
+**Interview Q&A:**
+- *Isn't residual RL "cheating" against the PID baseline?* — No. It's the honest version of the claim: RL improves a strong classical controller, and the comparison isolates exactly what learning adds. The from-scratch attempts are reported as a negative result with evidence.
+- *How do you detect a local optimum rather than slow learning?* — Look at the outcome mix and behaviour, not the return:
+  - success flat for millions of steps;
+  - all failures of one type (timeouts, or misses at a characteristic distance);
+  - an isolation experiment on a fixed scenario.

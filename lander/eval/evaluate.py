@@ -29,6 +29,21 @@ def ppo_policy(model_path: str | Path, device: str = "cpu") -> Policy:
     return act
 
 
+def load_policy(cfg: dict, run_or_zip: Path) -> Policy:
+    """A training run dir (reads meta.json: residual or plain PPO) or a .zip."""
+    import json
+
+    run = Path(run_or_zip)
+    if run.is_dir():
+        meta = json.loads((run / "meta.json").read_text())
+        if meta.get("residual"):
+            from lander.training.residual import residual_policy
+
+            return residual_policy(cfg, run / "final.zip", meta["residual_scale"])
+        return ppo_policy(run / "final.zip")
+    return ppo_policy(run)
+
+
 def pid_policy(cfg: dict) -> Policy:
     from lander.baselines.pid import PIDLander
 

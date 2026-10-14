@@ -117,7 +117,15 @@ class RuntimeConfig:
 
 class Runtime:
     def __init__(self, cfg: dict, onnx_path: Path, frames: FrameSource, mav: MavLink,
-                 safety: SafetyConfig, rt: RuntimeConfig, log_path: Path) -> None:
+                 safety: SafetyConfig, rt: RuntimeConfig, log_path: Path,
+                 residual_scale: float | None = None) -> None:
+        """residual_scale: if set, the ONNX model is a residual on top of the PID
+        baseline (training/residual.py) and the action is PID + scale * residual."""
+        self.residual_scale = residual_scale
+        if residual_scale is not None:
+            from lander.baselines.pid import PIDLander
+
+            self.pid = PIDLander(cfg["baseline"], cfg["task"])
         self.cfg, self.task = cfg, cfg["task"]
         self.frames, self.mav, self.safety, self.rt = frames, mav, safety, rt
         self.sess = onnx_session(onnx_path, threads=1)
@@ -180,8 +188,13 @@ class Runtime:
                                np.array([visible]), self.kf.since_meas, prev_action[None], self.task)
             t0 = time.perf_counter()
             action = self.sess.run(None, {"obs": obs})[0][0]
+            if self.residual_scale is not None:
+                from lander.training.residual import compose
+
+                action = compose(self.pid(obs), action[None], self.residual_scale)[0]
             pol_ms = (time.perf_counter() - t0) * 1e3
-            v_cmd = tk.action_to_velocity(action[None], self.task)[0]
+            v_cmd = tk.action_to_velocity(action[None], self.task,
+                                          tk.feedforward(self.kf.rover_vel, self.kf.initialised))[0]
             # ---- touchdown: motor cut on the platform
             est = self.kf.rel_pos[0]
             state = self._vehicle_state()

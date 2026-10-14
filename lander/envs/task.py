@@ -21,7 +21,8 @@ import numpy as np
 OBS_NAMES = (
     "kf_x", "kf_y", "kf_h",           # estimated marker position (level frame)
     "kf_rover_vx", "kf_rover_vy",     # estimated rover velocity
-    "drone_vx", "drone_vy", "drone_vz",  # drone velocity from the autopilot EKF
+    "rel_vx", "rel_vy",                # estimated rover velocity - drone velocity (horizontal)
+    "drone_vz",                        # drone vertical velocity from the autopilot EKF
     "visible",                         # marker detected this step (0/1)
     "lost_time",                       # seconds since last detection (clipped, scaled)
     "prev_ax", "prev_ay", "prev_az",   # previous action (lets the policy be smooth)
@@ -35,11 +36,29 @@ OUTCOME_NAMES = {SUCCESS: "success", MISS: "miss", CRASH: "crash",
                  OUT_OF_BOUNDS: "out_of_bounds", TIMEOUT: "timeout"}
 
 
-def action_to_velocity(a: np.ndarray, cfg: dict) -> np.ndarray:
-    """a in [-1,1]^3 -> level-frame velocity command (m/s), z down positive."""
+def action_to_velocity(a: np.ndarray, cfg: dict, rover_vel_est: np.ndarray | None = None) -> np.ndarray:
+    """a in [-1,1]^3 -> level-frame velocity command (m/s), z down positive.
+
+    The horizontal action is a velocity RELATIVE TO THE ESTIMATED ROVER
+    VELOCITY (feed-forward): v_cmd_xy = v_rover_est + a_xy * v_max. Together
+    with the relative-velocity observation this makes the policy invariant to
+    rover speed by construction: "close the gap, damp the relative velocity"
+    learned on a static rover is already the right behaviour on a moving one.
+    (With absolute velocity actions + drone-velocity observations, PPO learned
+    to damp its OWN velocity on static rovers and then failed at 0.1 m/s - 8%
+    success where the PID got 84%; Step 9, reward/obs v5.)
+    """
     a = np.clip(a, -1.0, 1.0)
     s = cfg["action"]
-    return a * np.array([s["v_xy_max_mps"], s["v_xy_max_mps"], s["v_z_max_mps"]])
+    v = a * np.array([s["v_xy_max_mps"], s["v_xy_max_mps"], s["v_z_max_mps"]])
+    if rover_vel_est is not None:
+        v[:, :2] += rover_vel_est
+    return v
+
+
+def feedforward(kf_rover_vel: np.ndarray, kf_init: np.ndarray) -> np.ndarray:
+    """Rover velocity estimate used as feed-forward (zero before the first detection)."""
+    return np.where(kf_init[:, None], kf_rover_vel, 0.0)
 
 
 def build_obs(kf_pos: np.ndarray, kf_rover_vel: np.ndarray, kf_init: np.ndarray,
@@ -47,13 +66,15 @@ def build_obs(kf_pos: np.ndarray, kf_rover_vel: np.ndarray, kf_init: np.ndarray,
               prev_action: np.ndarray, cfg: dict) -> np.ndarray:
     o = cfg["observation"]
     pos = np.where(kf_init[:, None], kf_pos, 0.0)
-    rv = np.where(kf_init[:, None], kf_rover_vel, 0.0)
+    rv = feedforward(kf_rover_vel, kf_init)
+    rel_v = rv - drone_vel[:, :2]
     lost = np.minimum(lost_time, o["lost_time_clip_s"]) / o["lost_time_clip_s"]
     obs = np.concatenate([
         pos[:, :2] / o["pos_xy_scale_m"],
         pos[:, 2:3] / o["height_scale_m"],
         rv / o["vel_scale_mps"],
-        drone_vel / o["vel_scale_mps"],
+        rel_v / o["vel_scale_mps"],
+        drone_vel[:, 2:3] / o["vel_scale_mps"],
         visible[:, None].astype(float),
         lost[:, None],
         prev_action,
@@ -74,7 +95,9 @@ def potential(t: StepTruth, cfg: dict) -> np.ndarray:
     dxy = np.linalg.norm(t.d[:, :2], axis=1)
     near = np.exp(-np.maximum(t.h, 0) / r["near_scale_m"])
     vxy = np.linalg.norm(t.v_rel[:, :2], axis=1)
-    return -(r["phi_xy"] * dxy + r["phi_h"] * np.maximum(t.h, 0) + r["phi_v"] * vxy * near)
+    h = np.maximum(t.h, 0)
+    xy_weight = 1.0 + r["k_low"] / (h + r["h0_m"])
+    return -(r["phi_xy"] * dxy * xy_weight + r["phi_h"] * h + r["phi_v"] * vxy * near)
 
 
 def check_termination(t: StepTruth, elapsed_s: np.ndarray, cfg: dict) -> np.ndarray:

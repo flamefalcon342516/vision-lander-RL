@@ -27,11 +27,11 @@ class PIDLander:
         xy = obs[:, 0:2] * o["pos_xy_scale_m"]
         h = obs[:, 2] * o["height_scale_m"]
         rover_v = obs[:, 3:5] * o["vel_scale_mps"]
-        drone_v = obs[:, 5:7] * o["vel_scale_mps"]
+        rel_v = obs[:, 5:7] * o["vel_scale_mps"]          # rover_est - drone
         lost = obs[:, 9] * o["lost_time_clip_s"]
         never_seen = (np.abs(obs[:, 0:3]).sum(axis=1) == 0) & (obs[:, 8] == 0)
 
-        v_xy = c["feedforward"] * rover_v + c["kp_xy"] * xy - c["kd_xy"] * (drone_v - rover_v)
+        v_xy = c["feedforward"] * rover_v + c["kp_xy"] * xy + c["kd_xy"] * rel_v
         aligned = np.linalg.norm(xy, axis=1) < c["align_radius_m"] + c["align_per_m"] * h
         vz = np.where(aligned, np.clip(c["descent_gain"] * h, c["descent_min_mps"],
                                        c["descent_max_mps"]), 0.0)
@@ -40,6 +40,10 @@ class PIDLander:
         climbing = ((lost > c["lost_climb_s"]) & (h < c["climb_ceiling_m"])) | never_seen
         vz = np.where(climbing, -c["climb_mps"], vz)
         v_xy = np.where(climbing[:, None], 0.0, v_xy)
+        # the env adds the rover-velocity estimate as feed-forward (task.action_to_velocity),
+        # so the action is the command relative to it: identical control law as before
+        never = (np.abs(obs[:, 0:5]).sum(axis=1) == 0)
+        v_xy = v_xy - np.where(never[:, None], 0.0, rover_v)
         v = np.concatenate([v_xy, vz[:, None]], axis=1)
         scale = np.array([self.t["action"]["v_xy_max_mps"]] * 2 + [self.t["action"]["v_z_max_mps"]])
         return np.clip(v / scale, -1, 1).astype(np.float32)

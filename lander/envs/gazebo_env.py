@@ -328,7 +328,8 @@ class GazeboLandingEnv(gym.Env):
     def step(self, action: np.ndarray):
         dt = self.task["control_dt_s"]
         a = np.clip(np.asarray(action, dtype=float), -1, 1)
-        self.mav.send_velocity_level(tk.action_to_velocity(a[None], self.task)[0])
+        ff = tk.feedforward(self.kf.rover_vel, self.kf.initialised)
+        self.mav.send_velocity_level(tk.action_to_velocity(a[None], self.task, ff)[0])
         self.rover.step(dt)
         self._rover_cmd()
         self._apply_wind(dt)

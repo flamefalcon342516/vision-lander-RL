@@ -5,7 +5,7 @@ control_dt_s: 0.1            # policy rate 10 Hz (sim time)
 max_episode_s: 30.0          # truncation (time limit)
 
 action:                      # policy outputs a in [-1,1]^3, scaled to level-frame velocity
-  v_xy_max_mps: 4.0          # must exceed the fastest rover (3 m/s) to catch up
+  v_xy_max_mps: 2.5          # CORRECTION on top of the rover-velocity feed-forward (see task.py)
   v_z_max_mps: 1.5           # ArduPilot WPNAV_SPEED_DN default = 1.5 m/s (verified in source)
 
 start:                       # episode start, relative to the marker (level frame)
@@ -30,7 +30,11 @@ bounds:
 reward:
   # Potential-based shaping (Ng et al. 1999): r_shape = gamma*Phi(s') - Phi(s).
   # It adds no new optima, it only makes progress visible step by step.
-  phi_xy: 1.0                # Phi = -(phi_xy*|d_xy| + phi_h*h + phi_v*|v_rel_xy|*near)
+  phi_xy: 1.0                # Phi = -(phi_xy*|d_xy|*(1 + k_low/(h + h0)) + phi_h*h + phi_v*|v_rel_xy|*near)
+  k_low: 4.0                 # horizontal error costs more the lower we are: an "alignment cone"
+  h0_m: 0.5                  # as a potential. Reward v4 (uniform weight) learned to dive at full
+                             # speed from any offset: fine on static rovers, 0.2% at 0.3 m/s
+                             # (it lost the marker at ~2 m and finished blind; results/runs/reward_v4_s0).
   phi_h: 1.0
   phi_v: 2.0                 # relative-velocity term, weighted by near = exp(-h / near_scale)
                              # (0.5 -> 77% of misses were sliding > 0.5 m/s at touchdown)

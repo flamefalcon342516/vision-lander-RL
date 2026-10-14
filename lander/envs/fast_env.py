@@ -267,7 +267,7 @@ class FastLandingCore:
     # ------------------------------------------------------------ step
     def step(self, action: np.ndarray):
         a = np.clip(action, -1, 1)
-        cmd = tk.action_to_velocity(a, self.task)
+        cmd = tk.action_to_velocity(a, self.task, tk.feedforward(self.kf.rover_vel, self.kf.initialised))
         prev = self._truth()
         for _ in range(self.n_sub):
             self._substep(cmd)
