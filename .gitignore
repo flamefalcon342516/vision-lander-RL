@@ -14,3 +14,7 @@ terrain/
 mav.parm
 mav.tlog*
 .sitl/
+
+# Experiment outputs (large/regenerable); curated figures/tables are copied to docs/
+results/*
+!results/.gitkeep

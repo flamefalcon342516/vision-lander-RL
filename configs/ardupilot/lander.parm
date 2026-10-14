@@ -1,0 +1,9 @@
+# Project parameter overrides, loaded after copter.parm + gazebo-iris.parm in
+# SITL and to be applied on the real flight controller as well.
+#
+# Never change yaw on our own. The default (2, "face next waypoint") makes
+# GUIDED velocity commands with yaw ignored turn the nose toward the direction
+# of travel. That rotates the level frame mid-manoeuvre, so body-frame
+# velocity commands spiral and the observation frame drifts. Found in Step 8
+# sysid: a -3 m/s x command produced ~2 m/s in y.
+WP_YAW_BEHAVIOR 0

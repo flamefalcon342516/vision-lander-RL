@@ -6,6 +6,7 @@
 default_params:
   - Tools/autotest/default_params/copter.parm
   - Tools/autotest/default_params/gazebo-iris.parm
+  - PROJECT:configs/ardupilot/lander.parm   # PROJECT: = relative to this repo
 instance: 0                    # -I0: SERIAL0 on tcp:5760, JSON servo out to udp:9002
 speedup: 1                     # SITL's own pacing target (wall-clock multiple)
 # Must match <spherical_coordinates> in the world, else SITL's GPS/home and the
@@ -30,3 +31,11 @@ fly_check:
   ekf_ready_timeout_s: 90    # wall seconds to wait for GPS/EKF before arming
   phase_timeout_s: 60        # wall seconds per phase (climb, land)
   frame_tolerance_m: 0.3     # |Gazebo pose mapped to NED - SITL LOCAL_POSITION_NED|
+
+sysid:                       # velocity-step experiment (lander/sim/sysid.py)
+  altitude_m: 10.0
+  xy_steps_mps: [1.0, 2.0, 4.0, -3.0]
+  z_steps_mps: [1.0, -1.0, 1.5]   # level frame z is DOWN: +1 = descend
+  hold_s: 5.0
+  settle_s: 4.0
+  send_dt_s: 0.1                # stream setpoints at the 10 Hz control rate

@@ -22,7 +22,9 @@ from pymavlink import mavutil
 def launch_sitl(sitl_cfg: dict, paths: dict, root: Path) -> subprocess.Popen:
     ardupilot = Path(paths["ardupilot_dir"]).expanduser()
     binary = Path(paths["arducopter_bin"]).expanduser()
-    defaults = ",".join(str(ardupilot / p) for p in sitl_cfg["default_params"])
+    defaults = ",".join(
+        str(root / p.removeprefix("PROJECT:")) if p.startswith("PROJECT:") else str(ardupilot / p)
+        for p in sitl_cfg["default_params"])
     workdir = root / sitl_cfg["workdir"]
     workdir.mkdir(parents=True, exist_ok=True)
     cmd = [

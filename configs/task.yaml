@@ -1,0 +1,49 @@
+# The landing MDP, shared by Stage A (fast_env) and Stage B (gazebo_env).
+# Every number the env, reward or termination logic uses lives here.
+
+control_dt_s: 0.1            # policy rate 10 Hz (sim time)
+max_episode_s: 40.0          # truncation (time limit)
+
+action:                      # policy outputs a in [-1,1]^3, scaled to level-frame velocity
+  v_xy_max_mps: 4.0          # must exceed the fastest rover (3 m/s) to catch up
+  v_z_max_mps: 1.5           # ArduPilot WPNAV_SPEED_DN default = 1.5 m/s (verified in source)
+
+start:                       # episode start, relative to the marker (level frame)
+  height_m: [4.0, 8.0]       # height of the drone above the deck
+  offset_frac_of_height: 0.35  # horizontal offset radius <= frac * height (keeps the marker in view)
+
+touchdown:
+  # "Virtual touchdown": the episode ends when the drone origin is this close
+  # above the deck (iris feet are 0.195 m below its origin -> feet ~5 cm up).
+  # Avoids physical contact (flips, disarms) and makes resets cheap.
+  height_m: 0.25
+  max_xy_err_m: 0.25         # deck marker 0.6 m square; iris feet span ~0.2 m
+  max_rel_vxy_mps: 0.5       # horizontal speed relative to the rover at touchdown
+  max_vz_mps: 1.0            # descent speed at touchdown
+
+bounds:
+  max_xy_dist_m: 15.0        # lost far away -> failure
+  max_height_m: 15.0
+  min_ground_clearance_m: 0.3   # below this, away from the deck, = crash into the ground
+
+reward:
+  # Potential-based shaping (Ng et al. 1999): r_shape = gamma*Phi(s') - Phi(s).
+  # It adds no new optima, it only makes progress visible step by step.
+  phi_xy: 1.0                # Phi = -(phi_xy*|d_xy| + phi_h*h + phi_v*|v_rel_xy|*near)
+  phi_h: 0.5
+  phi_v: 0.5                 # relative-velocity term, weighted by near = exp(-h / near_scale)
+  near_scale_m: 2.0
+  w_lost: 0.05               # per step the marker is not detected
+  w_smooth: 0.02             # * |a_t - a_{t-1}|^2  (jerk / chatter)
+  w_time: 0.01               # per step: prefer landing over hovering forever
+  r_success: 50.0            # touchdown within tolerances
+  r_precision: 20.0          # extra * (1 - xy_err / max_xy_err) on success
+  r_fail: -30.0              # touchdown outside tolerances, crash, out of bounds
+
+gamma: 0.99
+
+observation:                 # scales map each feature to roughly [-1, 1]
+  pos_xy_scale_m: 5.0
+  height_scale_m: 10.0
+  vel_scale_mps: 3.0
+  lost_time_clip_s: 3.0
