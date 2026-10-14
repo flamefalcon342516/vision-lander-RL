@@ -34,6 +34,11 @@
          systems are loaded at world level. ArduPilot needs the IMU in Step 2. -->
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <!-- Wind for Stage B (Step 11). ArduPilot's SIM_WIND_* params do NOTHING
+         with the JSON backend ("wind is not supported yet for JSON sim",
+         SIM_JSON.cpp), so wind is applied here as a force on the drone body:
+         /world/lander_world/wrench/persistent (gz.msgs.EntityWrench). -->
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
 
     <!-- Gazebo's world frame is ENU (x=East, y=North, z=Up). This anchors the
          world origin to a geodetic location (ArduPilot's default SITL home,

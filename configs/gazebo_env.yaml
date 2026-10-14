@@ -8,3 +8,14 @@ rover_recenter_dist_m: 25.0     # teleport the rover home if it drifted farther
 reposition_tol_m: 0.3           # start the episode when within this of the start point...
 reposition_vel_tol_mps: 0.3     # ...and slower than this
 reposition_timeout_s: 25.0      # sim seconds; start anyway after this
+
+# Domain randomisation in Gazebo (Step 11). Off for plain evaluation.
+dr:
+  enabled: false
+  wind_mean_mps: [0.0, 4.0]      # steady wind speed, random direction per episode
+  gust_std_mps: [0.0, 0.5]       # OU gusts on top (tau below), same model as Stage A
+  gust_tau_s: 2.0
+  drag_n_per_m2s2: 0.04          # F = k |v_air| v_air; 0.5*rho*Cd*A ~ 0.5*1.2*1.0*0.06
+  drone_link: iris::iris_with_standoffs::base_link
+  sun_diffuse: [0.35, 1.0]       # lighting intensity (also changes marker contrast)
+  sun_elevation_deg: [25.0, 90.0]

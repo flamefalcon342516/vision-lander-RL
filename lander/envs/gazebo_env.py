@@ -26,7 +26,11 @@ import time
 
 import gymnasium as gym
 import numpy as np
+from gz.msgs10.boolean_pb2 import Boolean
+from gz.msgs10.entity_pb2 import Entity
+from gz.msgs10.entity_wrench_pb2 import EntityWrench
 from gz.msgs10.image_pb2 import Image
+from gz.msgs10.light_pb2 import Light
 from gz.msgs10.pose_pb2 import Pose
 from gz.msgs10.twist_pb2 import Twist
 from gz.transport13 import Node
@@ -106,6 +110,9 @@ class GazeboLandingEnv(gym.Env):
         d = c["sitl"]["drone"]
         self.node.subscribe(Pose, f"/model/{d['name']}/pose", self.truth.cb("drone"))
         self.rover_pub = self.node.advertise("/model/rover/cmd_vel", Twist)
+        w = c["sim"]["world_name"]
+        self.wrench_pub = self.node.advertise(f"/world/{w}/wrench/persistent", EntityWrench)
+        self.wrench_clear_pub = self.node.advertise(f"/world/{w}/wrench/clear", Entity)
         self.world.spawn("model://lander_rover", "rover", Vec3(0, 0, self.genv["rover_spawn_z_m"]))
         self._spawn_drone_and_sitl()
         self._started = True
@@ -206,6 +213,48 @@ class GazeboLandingEnv(gym.Env):
         self.rover_pub.publish(Twist(linear={"x": float(self.rover.v[0])},
                                      angular={"z": float(-self.rover.omega[0])}))
 
+    # ------------------------------------------------------------ Step 11: DR
+    def _dr_reset(self) -> None:
+        dr = self.genv["dr"]
+        self.wind = np.zeros(2)
+        self.gust = np.zeros(2)
+        if not dr["enabled"]:
+            return
+        ang = self.rng.uniform(-np.pi, np.pi)
+        self.wind = self.rng.uniform(*dr["wind_mean_mps"]) * np.array([np.cos(ang), np.sin(ang)])
+        self.gust_std = self.rng.uniform(*dr["gust_std_mps"])
+        # lighting: sun elevation/azimuth and intensity
+        el = np.radians(self.rng.uniform(*dr["sun_elevation_deg"]))
+        az = self.rng.uniform(-np.pi, np.pi)
+        diff = self.rng.uniform(*dr["sun_diffuse"])
+        light = Light(name="sun", type=Light.DIRECTIONAL, cast_shadows=True)
+        light.direction.x, light.direction.y, light.direction.z = (
+            np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), -np.sin(el))
+        light.diffuse.r = light.diffuse.g = light.diffuse.b = diff
+        light.diffuse.a = 1.0
+        self.world._services.request(f"/world/{self.world.world}/light_config", light, Boolean,
+                                     self.cfg["sim"]["service_timeout_ms"])
+        self.ep_light = float(diff)
+
+    def _apply_wind(self, dt: float) -> None:
+        dr = self.genv["dr"]
+        if not dr["enabled"]:
+            return
+        tau = dr["gust_tau_s"]
+        self.gust += -self.gust / tau * dt + self.gust_std * np.sqrt(2 * dt / tau) * self.rng.standard_normal(2)
+        v_ned = self.mav.vel_ned()
+        v_enu = np.array([v_ned[1], v_ned[0]])
+        w_enu = self.wind + self.gust
+        v_air = w_enu - v_enu
+        f = dr["drag_n_per_m2s2"] * np.linalg.norm(v_air) * v_air
+        msg = EntityWrench()
+        msg.entity.name = dr["drone_link"]
+        msg.entity.type = Entity.LINK
+        msg.wrench.force.x, msg.wrench.force.y = float(f[0]), float(f[1])
+        # persistent wrenches stay applied every physics step; replace, don't stack
+        self.wrench_clear_pub.publish(msg.entity)
+        self.wrench_pub.publish(msg)
+
     # ------------------------------------------------------------ gym API
     def set_scenario(self, kind: str | None, speed: float = 0.0) -> None:
         """Evaluation hook: fix the next episodes' path type and speed."""
@@ -257,6 +306,7 @@ class GazeboLandingEnv(gym.Env):
             if self.world.sim_time - t0 > g["reposition_timeout_s"]:
                 break   # start from wherever we are; the episode still runs
         # 3. start the episode
+        self._dr_reset()
         self.kf.reset(np.array([0]))
         self.prev_action = np.zeros(3)
         self.elapsed = 0.0
@@ -281,6 +331,7 @@ class GazeboLandingEnv(gym.Env):
         self.mav.send_velocity_level(tk.action_to_velocity(a[None], self.task)[0])
         self.rover.step(dt)
         self._rover_cmd()
+        self._apply_wind(dt)
         wall0 = time.monotonic()
         self._wait_sim(dt)
         step_wall = time.monotonic() - wall0
