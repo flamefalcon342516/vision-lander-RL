@@ -15,7 +15,7 @@ mavlink_url: tcp:127.0.0.1:5760
 workdir: .sitl                # eeprom.bin, logs, terrain go here (gitignored)
 
 drone:
-  model_uri: model://iris_with_ardupilot
+  model_uri: model://lander_iris
   name: iris
   # Resting height of the iris origin above the ground (same as iris_runway.sdf).
   spawn_z_m: 0.195

@@ -23,3 +23,6 @@ unset PYTHONPATH
 
 source "$_root/.venv/bin/activate"
 unset _root
+
+# `gz sdf -k` resolves model:// URIs through SDF_PATH, not GZ_SIM_RESOURCE_PATH.
+export SDF_PATH="$GZ_SIM_RESOURCE_PATH"

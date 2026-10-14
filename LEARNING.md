@@ -248,3 +248,35 @@ Total 4039. To command yaw_rate too, clear bit 11 → 1991.
   against. The RL claim to test: better handling of marker loss, fast or
   manoeuvring rovers, and descent timing. If PrecLand matches it, that's an
   honest result to report.
+
+---
+
+## Step 3 — Downward camera and intrinsics
+
+- **Pinhole model:** a 3-D point (X, Y, Z) in the camera's optical frame
+  (x right, y down, z out of the lens) projects to pixel
+  u = fx·X/Z + cx, v = fy·Y/Z + cy.
+  - K = [[fx,0,cx],[0,fy,cy],[0,0,1]] is the intrinsic matrix.
+  - For an ideal simulated camera, fx = fy = (W/2)/tan(hfov/2).
+  - With W = 640 and hfov = 90°, fx = 320. Gazebo's `camera_info` reports
+    319.999, which confirms it.
+- **Camera mounting in SDF:** a Gazebo camera looks along its link's +x with
+  image-up = +z. A pitch of +90° makes it look down, with image top = nose
+  and image right = body right.
+- **Rigid camera vs. gimbal:** a rigid camera tilts with the drone, so marker
+  pixels move when the drone pitches. Perception must de-rotate by
+  roll/pitch. Cheap real drones have no gimbal, so we design for that.
+- **Headless rendering:** cameras need a renderer even without a GUI. Use
+  `gz sim -s --headless-rendering` (EGL). The `libEGL warning: failed to create
+  dri2 screen` lines are harmless here; images render.
+- **Cost:** with the camera at 640×480 / 15 Hz, the lockstep ceiling drops from
+  ~12× to **5.5×** real time (measured, RTF/speedup 20).
+- **Including a model with its plugins:** `<include>` of iris_with_ardupilot
+  under the name `iris` keeps the ArduPilotPlugin working (scoped joint names
+  resolve relative to the included model). Attach extra links with a fixed
+  joint to `iris::iris_with_standoffs::base_link`.
+- **Pitfall:** `gz sdf -k` resolves `model://` through `SDF_PATH`, not
+  `GZ_SIM_RESOURCE_PATH` (now exported in env.sh).
+- **Observed:** a `takeoff 4` from the rover deck levelled off at 3.36 m above
+  the EKF origin. Don't rely on takeoff altitude; the env commands velocities
+  and uses ground truth.

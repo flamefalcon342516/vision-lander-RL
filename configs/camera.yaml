@@ -1,0 +1,12 @@
+# Mirrors the <sensor> in gazebo/models/lander_iris/model.sdf.
+# Intrinsics come from the pinhole model: fx = fy = (width/2) / tan(hfov/2).
+# Verified against Gazebo's camera_info topic in Step 3: fx = fy = 320.0, cx = 320, cy = 240.
+width: 640
+height: 480
+hfov_rad: 1.5708
+rate_hz: 15
+image_topic: /lander/camera/image
+# Mounting: camera 8 cm below body origin, optical axis = body down,
+# image top = body forward, image right = body right (verified in Step 4 by
+# the rover's orientation in the image).
+mount_offset_body_frd_m: [0.0, 0.0, 0.08]

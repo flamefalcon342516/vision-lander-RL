@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <!--
+    The stock ArduPilot iris (motors, LiftDrag, ArduPilotPlugin) included
+    unchanged, plus a RIGIDLY mounted downward camera. No gimbal on purpose:
+    cheap real drones have a fixed camera, so the camera tilts with the body
+    and perception must de-rotate by roll/pitch (Step 5).
+  -->
+  <model name="lander_iris">
+    <include>
+      <uri>model://iris_with_ardupilot</uri>
+      <name>iris</name>
+    </include>
+
+    <link name="camera_link">
+      <!-- 8 cm below the body centre, looking straight down.
+           A Gazebo camera looks along its link's +x with image-up = +z.
+           Pitch +90 deg maps link +x -> world -z (down) and link +z -> body
+           +x (forward), so the TOP of the image points at the nose and the
+           image's right is the body's right. -->
+      <pose>0 0 -0.08 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia><ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry><box><size>0.02 0.03 0.03</size></box></geometry>
+      </visual>
+      <sensor name="down_camera" type="camera">
+        <!-- Values here are mirrored in configs/camera.yaml for perception. -->
+        <camera>
+          <horizontal_fov>1.5708</horizontal_fov>   <!-- 90 deg -->
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip><near>0.05</near><far>50</far></clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0</mean>
+            <stddev>0.007</stddev>   <!-- fraction of full scale, ~2 grey levels -->
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>   <!-- Hz of SIM time; policy runs at 10 Hz -->
+        <topic>/lander/camera/image</topic>
+      </sensor>
+    </link>
+
+    <joint name="camera_mount" type="fixed">
+      <parent>iris::iris_with_standoffs::base_link</parent>
+      <child>camera_link</child>
+    </joint>
+
+    <!-- Ground-truth model pose at a fixed SIM-time rate, for rewards/metrics
+         (never fed to the policy). pose/info is ~60 Hz WALL time, unusable. -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_model_pose>true</publish_model_pose>
+      <publish_nested_model_pose>false</publish_nested_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>50</update_frequency>
+    </plugin>
+  </model>
+</sdf>

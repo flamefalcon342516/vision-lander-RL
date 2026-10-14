@@ -88,7 +88,9 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
     """
     cmd = ["gz", "sim", "-v", str(verbosity), world_file]
     if headless:
-        cmd.insert(2, "-s")
+        # --headless-rendering: render cameras through EGL without an X
+        # display, needed for the downward camera when there is no GUI.
+        cmd[2:2] = ["-s", "--headless-rendering"]
     # New session: lets us kill gz's whole process group (server + GUI) at once.
     return subprocess.Popen(cmd, env=os.environ.copy(), start_new_session=True)
 
