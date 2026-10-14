@@ -310,3 +310,72 @@ Total 4039. To command yaw_rate too, clear bit 11 → 1991.
   50.0 Hz). That makes it usable for rewards, unlike `pose/info`.
 - **Inertia of a box:** Ixx = m(b²+c²)/12 and so on (chassis 40 kg: 3.59,
   5.06, 8.13 kg·m²).
+
+---
+
+## Step 5 — ArUco detection, pose estimation, frames, Kalman filter
+
+### Concepts
+- **Detection:** ArUco finds square contours, reads the inner bit grid, and
+  matches it against a dictionary (DICT_4X4_50: 16 bits, large cells, robust
+  at range).
+- **Pose from 4 corners = Perspective-n-Point (PnP).** Find R, t such that
+  K·(R·X_i + t) projects onto the detected corners.
+  - For a planar square, **IPPE_SQUARE** solves it analytically from the
+    homography.
+- **Planar ambiguity:** every planar target has two pose solutions (the plane
+  can be "flipped"). Near head-on views, which is most of a landing, they
+  become nearly indistinguishable. We take every candidate and keep the one
+  that faces the camera (marker +z toward the lens, R[2,2] < 0) with the
+  lowest reprojection error.
+- **Frame chain:** cam (x right, y down, z optical) → body FRD (x = −y_cam,
+  y = x_cam, z = z_cam, plus the lens offset) → level (undo roll/pitch:
+  Ry(θ)·Rx(φ)) → NED (undo yaw: Rz(ψ)).
+  - Observations and actions both live in the level frame, the same frame
+    ArduPilot uses for BODY_NED velocity.
+  - Sanity rules (tested): nose-up pitch makes a marker below appear *behind*;
+    a right roll makes it appear on the *right*.
+- **Kalman filter:** the state is [rel_pos(3), rover_vel(2)], and the drone's
+  EKF velocity is a known *control input*:
+  - p' = [v_rover − v_drone_xy, −v_drone_z];
+  - v_rover is a random walk.
+  - During dropouts it keeps predicting correctly even while the drone
+    manoeuvres. A "relative velocity" state can't do that.
+  - The measurement noise grows with height: σ = 0.02 + 0.01·h.
+  - One code path handles N filters (Stage A: thousands; Stage B and
+    hardware: 1).
+
+### Equations
+- KF predict: x⁺ = F·x + B·u, P⁺ = F·P·Fᵀ + Q. Update: K = P·Hᵀ(H·P·Hᵀ + R)⁻¹,
+  x ← x + K(z − H·x), P ← (I − K·H)·P.
+- The steady-state rover-velocity error with 8 cm position noise at 10 Hz is
+  unbiased, std 0.16 m/s (measured). It trades smoothness against how quickly
+  it tracks a turning rover (`q_rover_accel`).
+
+### Pitfalls (all hit and measured here)
+- **Corner refinement matters at range.** Depth error at 10 m: NONE +5.5%,
+  SUBPIX +1.8%, **APRILTAG −0.8%** (1.14 vs 0.91 ms per frame). We use APRILTAG.
+- **solvePnP with IPPE_SQUARE returned a mirrored pose for an exactly frontal
+  view.** Both of its solutions were the same wrong one, with 80 px
+  reprojection error. Fix: add SQPnP as a candidate and select by
+  facing/reprojection error.
+- **Synthetic test renderer:** the OpenCV marker z axis points *toward* the
+  viewer. Rendering with the identity rotation gives a mirror image, which
+  ArUco (correctly) rejects.
+- **The marker's yaw isn't the rover's heading** (the texture is 90° off in
+  Gazebo). The landing pad is square and our action has no yaw, so marker yaw
+  isn't used.
+- **Detection quality metrics recorded:** RMS reprojection error (0.06 px on a
+  Gazebo frame at 3.5 m) and marker side in pixels. The Gazebo frame gave
+  height 3.54 m.
+
+### Interview Q&A
+- *Why use PnP rather than "pixel offset × altitude"?* — PnP gives full 3-D
+  relative position, including height, from the marker alone. No rangefinder
+  is needed, and it stays correct when the marker isn't centred.
+- *What breaks if you skip attitude compensation?* — Every pitch or roll
+  manoeuvre moves the marker in the image. The controller reacts to its own
+  attitude, which creates a coupled oscillation.
+- *Why put the KF in the level frame?* — The frame is gravity-aligned, so
+  height and horizontal motion separate cleanly. It also matches the action
+  frame, so the policy maps estimate → command with no extra rotation.

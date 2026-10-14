@@ -1,4 +1,5 @@
 """Gazebo assets: SDF validity (fast) and a free-fall physics check (slow)."""
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,12 @@ needs_gz = pytest.mark.skipif(shutil.which("gz") is None, reason="gz not install
 def test_sdf_is_valid(sdf: Path) -> None:
     # `gz sdf -k` checks the file against the SDF schema: catches typos in
     # element names that Gazebo would otherwise silently ignore at load time.
-    out = subprocess.run(["gz", "sdf", "-k", str(sdf)], capture_output=True, text=True)
+    # gz sdf resolves model:// via SDF_PATH; build it here so the test doesn't
+    # depend on the caller having sourced env.sh.
+    models = [ROOT / "gazebo" / "models",
+              Path.home() / "gz_ws/src/ardupilot_gazebo/models"]
+    env = {**os.environ, "SDF_PATH": ":".join(map(str, models))}
+    out = subprocess.run(["gz", "sdf", "-k", str(sdf)], capture_output=True, text=True, env=env)
     assert out.returncode == 0 and "Valid" in out.stdout, out.stdout + out.stderr
 
 

@@ -1,0 +1,7 @@
+# Kalman filter on [rel_pos(3), rover_vel(2)] in the level frame (lander/perception/kalman.py).
+kf:
+  q_rover_accel: 0.5        # (m/s^2)^2 per s: rover can change speed/turn
+  q_pos: 0.01               # m^2 per s: unmodelled relative motion (attitude, latency)
+  r_pos_base: 0.02          # m: detection std at 0 m height
+  r_pos_per_m: 0.01         # m per m of height: PnP depth/lateral error grows with range
+  init_rover_vel_std: 2.0   # m/s: prior on rover speed at first detection
