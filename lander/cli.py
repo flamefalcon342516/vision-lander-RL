@@ -7,11 +7,6 @@ from __future__ import annotations
 
 import argparse
 
-# command -> step that implements it
-_PLANNED = {
-    "eval": "Step 12 (metrics, baselines, ablations)",
-    "deploy": "Step 13 (companion-computer runtime)",
-}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--steps", type=int, default=None)
     tr.add_argument("--no-curriculum", action="store_true")
     tr.add_argument("--no-dr", action="store_true")
+    ev = sub.add_parser("eval", help="evaluate a policy over the scenario grid")
+    ev.add_argument("--policy", required=True, help="'pid', or a PPO .zip / run dir")
+    ev.add_argument("--stage", choices=["fast", "gazebo"], default="fast")
+    ev.add_argument("--episodes", type=int, default=500, help="per grid cell")
+    ev.add_argument("--no-dr", action="store_true", help="fast: nominal parameters")
+    ev.add_argument("--seed", type=int, default=12345)
+    ev.add_argument("--rtf", type=float, default=5.0)
+    ev.add_argument("--out", required=True, help="output name under results/eval/")
     sim = sub.add_parser("sim", help="Gazebo tools")
     sim.add_argument("action", choices=["up", "drop-test", "fly-check", "sysid", "make-marker"])
     sim.add_argument("--gui", action="store_true", help="also open the Gazebo GUI")
@@ -34,8 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--config", default="configs/sim.yaml")
     sim.add_argument("--sitl-config", default="configs/sitl.yaml")
     sim.add_argument("--paths", default="configs/paths.yaml")
-    for name, step in _PLANNED.items():
-        sub.add_parser(name, help=f"not yet implemented: {step}")
+    dp = sub.add_parser("deploy", help="ONNX export, timing, SITL rehearsal, hardware run")
+    dp.add_argument("action", choices=["export", "timing", "rehearse", "run"])
+    dp.add_argument("--run", default="main_s0", help="training run under results/runs/")
+    dp.add_argument("--onnx", default=None, help="default: results/runs/<run>/policy.onnx")
+    dp.add_argument("--kind", default="straight")
+    dp.add_argument("--speed", type=float, default=1.0)
+    dp.add_argument("--episodes", type=int, default=3)
+    dp.add_argument("--rtf", type=float, default=5.0)
     return parser
 
 
@@ -54,6 +63,32 @@ def main(argv: list[str] | None = None) -> int:
         out = train(load_all(), Path("results/runs") / args.run, args.seed,
                     curriculum=not args.no_curriculum, dr=not args.no_dr, total_steps=args.steps)
         print(f"saved {out}")
+        return 0
+    if args.command == "eval":
+        import json
+        from pathlib import Path
+
+        from lander.config import load_all
+        from lander.eval import evaluate as ev_mod
+
+        cfg = load_all()
+        if args.policy == "pid":
+            pol = ev_mod.pid_policy(cfg)
+        else:
+            p = Path(args.policy)
+            pol = ev_mod.ppo_policy(p / "final.zip" if p.is_dir() else p)
+        if args.stage == "fast":
+            recs = ev_mod.eval_fast(pol, cfg, args.episodes, args.seed, dr=not args.no_dr)
+        else:
+            recs = ev_mod.eval_gazebo(pol, cfg, args.episodes, args.seed, rtf=args.rtf)
+        out = Path("results/eval") / args.out
+        out.mkdir(parents=True, exist_ok=True)
+        rows = ev_mod.summarize(recs)
+        ev_mod.write_csv(rows, out / "summary.csv")
+        (out / "episodes.json").write_text(json.dumps(recs, default=float))
+        md = ev_mod.markdown_table(rows, f"{args.policy} - {args.stage}")
+        (out / "summary.md").write_text(md + "\n")
+        print(md)
         return 0
     if args.command == "sim":
         import yaml
@@ -88,5 +123,47 @@ def main(argv: list[str] | None = None) -> int:
         if args.speedup:
             sitl_cfg["speedup"] = args.speedup
         return fly_check(cfg, sitl_cfg, paths, args.gui, args.rtf)
-    print(f"'{args.command}' is not implemented yet: {_PLANNED[args.command]}")
+    if args.command == "deploy":
+        return _deploy(args)
     return 2
+
+
+def _deploy(args) -> int:
+    import json
+    from pathlib import Path
+
+    from lander.config import load_all
+
+    cfg = load_all()
+    run = Path("results/runs") / args.run
+    onnx = Path(args.onnx) if args.onnx else run / "policy.onnx"
+    if args.action == "export":
+        from lander.deploy.export import export_onnx
+
+        print(f"exported {export_onnx(run / 'final.zip', onnx)} (ONNX == SB3 to 1e-4)")
+        return 0
+    if args.action == "timing":
+        from lander.deploy.export import time_inference
+
+        for th in (1, 4):
+            print(json.dumps(time_inference(onnx, th)))
+        return 0
+    if args.action == "rehearse":
+        from lander.deploy.rehearsal import rehearse
+
+        out = Path("results/rehearsal")
+        res = rehearse(cfg, onnx, args.kind, args.speed, args.episodes, out, rtf=args.rtf)
+        (out / f"summary_{args.kind}_{args.speed}.json").write_text(json.dumps(res, indent=1))
+        return 0
+    # hardware: real camera + serial link. Never exercised in this repo's tests.
+    from lander.deploy.runtime import CvFrameSource, Runtime, RuntimeConfig
+    from lander.deploy.safety import SafetyConfig
+    from lander.mav import MavLink
+
+    d = cfg["deploy"]
+    mav = MavLink(d["hardware_url"], rates_hz={"LOCAL_POSITION_NED": 50, "ATTITUDE": 50, "HEARTBEAT": 2})
+    frames = CvFrameSource(d["camera_device"], cfg["camera"]["width"], cfg["camera"]["height"])
+    rt = Runtime(cfg, onnx, frames, mav, SafetyConfig(**d["safety"]), RuntimeConfig(**d["runtime"]),
+                 Path("results/flight_logs") / f"flight_{int(__import__('time').time())}.csv")
+    print(json.dumps(rt.run(), indent=1))
+    return 0

@@ -7,7 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ("sim", "sitl", "paths", "task", "camera", "marker", "perception", "scenarios",
-         "gazebo_env", "fast_env", "baseline", "ppo")
+         "gazebo_env", "fast_env", "baseline", "ppo", "deploy")
 
 
 def load_all(config_dir: Path | None = None) -> dict:

@@ -1,0 +1,25 @@
+# Companion-computer runtime (lander/deploy). Same file for SITL rehearsal and hardware.
+sitl_companion_url: tcp:127.0.0.1:5762   # SITL SERIAL1 = a companion on TELEM2
+hardware_url: /dev/ttyAMA0,921600        # Pi 5 UART to FC TELEM2 (SERIAL2_PROTOCOL=2, BAUD=921)
+camera_device: 0
+
+runtime:
+  rate_hz: 10.0             # MUST equal the training control rate (task.yaml control_dt_s)
+  cut_height_m: 0.30        # est. height above deck where motors are cut
+  cut_max_xy_m: 0.20
+  cut_max_lost_s: 0.6
+  max_duration_s: 60.0
+
+safety:
+  v_xy_max_mps: 4.0
+  v_up_max_mps: 1.5
+  v_down_max_mps: 1.5
+  alt_ceiling_m: 15.0
+  alt_floor_m: 1.5
+  floor_marker_max_lost_s: 0.5
+  floor_marker_max_xy_m: 0.5
+  geofence_radius_m: 50.0
+  lost_hover_s: 2.0
+  lost_rtl_s: 8.0
+  heartbeat_timeout_s: 1.5
+  required_mode: GUIDED
