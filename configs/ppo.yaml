@@ -1,0 +1,21 @@
+# PPO hyperparameters (Stable-Baselines3). Every value explained in LEARNING.md (Step 9).
+n_envs: 256              # parallel Stage A envs: more envs = more diverse, less correlated data
+n_steps: 128             # steps per env per rollout -> batch = 256*128 = 32768 transitions
+batch_size: 4096         # minibatch for each gradient step (8 per epoch)
+n_epochs: 5              # passes over each rollout; more = more sample-efficient, riskier
+learning_rate: 3.0e-4    # Adam step size, linearly decayed to 0 over training
+# gamma lives in task.yaml (0.995, horizon ~200 steps = 20 s) - it defines the MDP
+gae_lambda: 0.95         # GAE bias/variance trade-off
+clip_range: 0.2          # PPO trust region: ratio clipped to [0.8, 1.2]
+ent_coef: 0.0            # entropy bonus; Gaussian log-std is learned, exploration via init
+vf_coef: 0.5             # value-loss weight in the shared loss
+max_grad_norm: 0.5       # gradient clipping (stability)
+target_kl: 0.05          # stop the epoch loop early if the policy moved too far
+log_std_init: -0.5       # initial action std = exp(-0.5) = 0.61 (actions in [-1,1])
+net_arch: [256, 256]     # separate policy and value MLPs, two hidden layers each
+activation: tanh         # smooth, bounded: standard for continuous-control PPO
+norm_reward: true        # VecNormalize reward scaling (returns ~unit scale -> stable value loss)
+device: cuda             # measured: 41k steps/s on the RTX 4050 vs 16.6k on CPU (4 threads) - large minibatches
+total_timesteps: 50000000   # ~7M steps to master the static stage (measured), 5 stages
+checkpoint_every: 5000000
+eval_every_rollouts: 10  # log curriculum/success stats every N rollouts

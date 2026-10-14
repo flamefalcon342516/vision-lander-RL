@@ -9,7 +9,6 @@ import argparse
 
 # command -> step that implements it
 _PLANNED = {
-    "train": "Step 9 (PPO in the fast env) / Step 11 (Gazebo fine-tune)",
     "eval": "Step 12 (metrics, baselines, ablations)",
     "deploy": "Step 13 (companion-computer runtime)",
 }
@@ -20,6 +19,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor", help="verify the toolchain on this machine")
     doctor.add_argument("--paths", default="configs/paths.yaml", help="machine paths YAML")
+    tr = sub.add_parser("train", help="PPO in the fast env (Stage A)")
+    tr.add_argument("--run", required=True, help="run name under results/runs/")
+    tr.add_argument("--seed", type=int, default=0)
+    tr.add_argument("--steps", type=int, default=None)
+    tr.add_argument("--no-curriculum", action="store_true")
+    tr.add_argument("--no-dr", action="store_true")
     sim = sub.add_parser("sim", help="Gazebo tools")
     sim.add_argument("action", choices=["up", "drop-test", "fly-check", "sysid", "make-marker"])
     sim.add_argument("--gui", action="store_true", help="also open the Gazebo GUI")
@@ -40,6 +45,16 @@ def main(argv: list[str] | None = None) -> int:
         from lander.doctor import run_doctor
 
         return run_doctor(args.paths)
+    if args.command == "train":
+        from pathlib import Path
+
+        from lander.config import load_all
+        from lander.training.train import train
+
+        out = train(load_all(), Path("results/runs") / args.run, args.seed,
+                    curriculum=not args.no_curriculum, dr=not args.no_dr, total_steps=args.steps)
+        print(f"saved {out}")
+        return 0
     if args.command == "sim":
         import yaml
 

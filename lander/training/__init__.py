@@ -1,1 +1,1 @@
-"""PPO configs, curriculum scheduler, training entry points (Step 9, 11)."""
+"""PPO training (Step 9) and Gazebo fine-tuning (Step 11)."""
