@@ -1,21 +1,24 @@
 {
   "x": {
-    "tau_s": 0.3,
-    "delay_s": 0.36,
-    "a_max_mps2": 2.75,
-    "rmse_mps": 0.06075729796357266
+    "tau_s": 0.35,
+    "delay_s": 0.06,
+    "a_max_mps2": 3.0,
+    "jerk_mps3": 4.0,
+    "rmse_mps": 0.04478601084817351
   },
   "y": {
-    "tau_s": 0.25,
-    "delay_s": 0.38,
-    "a_max_mps2": 2.75,
-    "rmse_mps": 0.04713332864839636
+    "tau_s": 0.35,
+    "delay_s": 0.08,
+    "a_max_mps2": 3.0,
+    "jerk_mps3": 4.0,
+    "rmse_mps": 0.04340602241451332
   },
   "z": {
-    "tau_s": 0.1,
-    "delay_s": 0.16,
+    "tau_s": 0.15,
+    "delay_s": 0.0,
     "a_max_mps2": 1.0,
-    "rmse_mps": 0.013121348786447648
+    "jerk_mps3": 3.0,
+    "rmse_mps": 0.012799328465534231
   },
   "pitch_per_accel_gain": 0.9761754104358688,
   "roll_per_accel_gain": 0.9540854262950821

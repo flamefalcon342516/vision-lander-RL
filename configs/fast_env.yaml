@@ -1,0 +1,44 @@
+# Stage A simulator (lander/envs/fast_env.py). Nominal values come from
+# measurements; each episode samples domain-randomisation (DR) multipliers/ranges.
+
+substep_s: 0.02              # internal integration step (5 per control step)
+
+dynamics:                    # from Step 8 system identification (configs/sysid_fit.json)
+  tau_xy_s: 0.35             # jerk-limited model; RMSE 0.044 m/s (x, y)
+  delay_xy_s: 0.07
+  a_max_xy_mps2: 3.0
+  jerk_xy_mps3: 4.0          # ArduPilot PSC_JERK_NE default 5 (source)
+  tau_z_s: 0.15              # RMSE 0.013 m/s
+  delay_z_s: 0.0
+  a_max_z_mps2: 1.0
+  jerk_z_mps3: 3.0
+  tilt_gain: 0.96            # tilt = gain * atan(a/g), fitted 0.95-0.98
+
+camera:                      # mirrors configs/camera.yaml geometry
+  edge_margin_px: 2.0        # all 4 corners must be this far inside the image
+
+detection:                   # fitted to the Gazebo hover sweep (Step 10)
+  # P(detect) = sigmoid((side_px - side50) / width): 26 px -> 74%, 22 px -> 26%, >=32 px -> ~100%
+  side50_px: 24.5
+  side_width_px: 1.5
+  dropout: 0.02              # extra random misses (blur, glare)
+  lat_std_m_per_m: 0.004     # lateral noise std per metre of height
+  depth_std_m_per_m2: 0.003  # depth noise std grows ~ h^2 (PnP)
+  depth_bias_frac: 0.02      # rendering shrinks the marker ~0.8 px -> depth over-estimate
+  latency_s: [0.02, 0.165]   # image age at use, measured mean 0.089, max 0.165 s
+  attitude_noise_rad: 0.009  # 0.5 deg EKF attitude error; de-rotation uses the attitude AT THE IMAGE TIME
+
+disturbance:                 # wind gusts as an additive velocity disturbance (OU)
+  gust_tau_s: 2.0
+  gust_std_mps: 0.15
+
+dr:                          # per-episode domain randomisation (Step 11)
+  enabled: true
+  dyn_scale: [0.8, 1.25]     # multiplies tau and a_max
+  delay_scale: [0.8, 1.25]
+  side50_shift_px: [-3.0, 4.0]   # lighting / blur / marker print quality -> detection range
+  noise_scale: [0.5, 2.0]
+  dropout: [0.0, 0.10]
+  depth_bias_frac: [-0.02, 0.05]
+  gust_std_mps: [0.0, 0.5]
+  latency_scale: [0.8, 1.5]

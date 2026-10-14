@@ -1,0 +1,44 @@
+# Rover scenarios and the curriculum, shared by Stage A and Stage B.
+# A stage samples a path type with the given probabilities, then a speed,
+# radius (circle/figure-8) and turn-rate limit (random) uniformly.
+# dr_level scales the domain-randomisation ranges (fast_env.yaml `dr`) from the
+# measured nominal values (0) to the full ranges (1): wind, lighting/detection
+# range, noise, latency come LAST, as in the original curriculum plan.
+# Why: with full DR from the start even the tuned PID lands only 59% on a
+# static rover (84% without DR), so an 80% gate could never open.
+
+path_types: [static, straight, circle, figure8, random]   # ids 0..4 (lander/envs/rover.py)
+
+curriculum:
+  # Advance when success rate over the last `window` episodes >= `promote_at`.
+  window: 400
+  promote_at: 0.75
+  stages:
+    - name: static
+      probs: [1.0, 0, 0, 0, 0]
+      speed_mps: [0.0, 0.0]
+      dr_level: 0.0
+    - name: slow_straight
+      probs: [0.2, 0.8, 0, 0, 0]
+      speed_mps: [0.2, 1.0]
+      dr_level: 0.0
+    - name: fast_straight
+      probs: [0.1, 0.9, 0, 0, 0]
+      speed_mps: [0.5, 2.0]
+      dr_level: 0.25
+    - name: curved
+      probs: [0.1, 0.3, 0.2, 0.2, 0.2]
+      speed_mps: [0.5, 2.0]
+      dr_level: 0.5
+    - name: full
+      probs: [0.1, 0.25, 0.2, 0.2, 0.25]
+      speed_mps: [0.0, 3.0]
+      dr_level: 1.0
+
+radius_m: [4.0, 10.0]
+random_omega_max_radps: [0.2, 0.6]
+
+# Evaluation grid (Step 12): every path type at these nominal speeds.
+eval:
+  path_types: [static, straight, circle, figure8, random]
+  speeds_mps: [0.5, 1.5, 2.5]

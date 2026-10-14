@@ -2,14 +2,15 @@
 # Every number the env, reward or termination logic uses lives here.
 
 control_dt_s: 0.1            # policy rate 10 Hz (sim time)
-max_episode_s: 40.0          # truncation (time limit)
+max_episode_s: 30.0          # truncation (time limit)
 
 action:                      # policy outputs a in [-1,1]^3, scaled to level-frame velocity
   v_xy_max_mps: 4.0          # must exceed the fastest rover (3 m/s) to catch up
   v_z_max_mps: 1.5           # ArduPilot WPNAV_SPEED_DN default = 1.5 m/s (verified in source)
 
 start:                       # episode start, relative to the marker (level frame)
-  height_m: [4.0, 8.0]       # height of the drone above the deck
+  height_m: [3.0, 6.0]       # above the deck. Detection range measured in Gazebo (Step 10):
+                             # 100% <= 5 m, 74% @ 6 m, 26% @ 7 m, 0% >= 8 m (0.5 m marker, 640 px, 90 deg)
   offset_frac_of_height: 0.35  # horizontal offset radius <= frac * height (keeps the marker in view)
 
 touchdown:
@@ -30,17 +31,24 @@ reward:
   # Potential-based shaping (Ng et al. 1999): r_shape = gamma*Phi(s') - Phi(s).
   # It adds no new optima, it only makes progress visible step by step.
   phi_xy: 1.0                # Phi = -(phi_xy*|d_xy| + phi_h*h + phi_v*|v_rel_xy|*near)
-  phi_h: 0.5
-  phi_v: 0.5                 # relative-velocity term, weighted by near = exp(-h / near_scale)
+  phi_h: 1.0
+  phi_v: 2.0                 # relative-velocity term, weighted by near = exp(-h / near_scale)
+                             # (0.5 -> 77% of misses were sliding > 0.5 m/s at touchdown)
   near_scale_m: 2.0
   w_lost: 0.05               # per step the marker is not detected
   w_smooth: 0.02             # * |a_t - a_{t-1}|^2  (jerk / chatter)
   w_time: 0.01               # per step: prefer landing over hovering forever
   r_success: 50.0            # touchdown within tolerances
   r_precision: 20.0          # extra * (1 - xy_err / max_xy_err) on success
-  r_fail: -30.0              # touchdown outside tolerances, crash, out of bounds
+  r_fail: -30.0              # crash, out of bounds
+  r_miss: -10.0              # touchdown outside tolerances: bad, but better than never trying
+  r_timeout: -30.0           # never landing is a failure too (battery). Reward v1 had 0 here
+                             # and PPO learned to hover until timeout (0% success at 3M steps,
+                             # results/runs/reward_v1_s0): misses cost -30, hovering ~nothing.
 
-gamma: 0.99
+gamma: 0.995                 # horizon ~200 steps = 20 s. With 0.99 (10 s) a timeout penalty
+                             # 300-400 steps away is discounted to ~2-5% and is invisible,
+                             # while a miss penalty is immediate -> PPO hovered (Step 9 sweep).
 
 observation:                 # scales map each feature to roughly [-1, 1]
   pos_xy_scale_m: 5.0

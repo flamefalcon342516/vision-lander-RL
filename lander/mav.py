@@ -7,9 +7,11 @@ same class talks to SITL (tcp:127.0.0.1:5760) or a real flight controller
 """
 from __future__ import annotations
 
+import bisect
 import threading
 import time
-from typing import Any
+from collections import deque
+from typing import Any, Callable
 
 import numpy as np
 from pymavlink import mavutil
@@ -22,7 +24,11 @@ MASK_POS_ONLY = 0b0000_1111_1111_1000      # 4088: use x, y, z only
 
 
 class MavLink:
-    def __init__(self, url: str, timeout_s: float = 30.0, rates_hz: dict[str, float] | None = None):
+    def __init__(self, url: str, timeout_s: float = 30.0, rates_hz: dict[str, float] | None = None,
+                 clock: Callable[[], float] = time.monotonic, history_s: float = 1.0):
+        """clock: the time base for the attitude history. Must be the same clock
+        the camera frames are stamped with (Gazebo sim time in Stage B,
+        time.monotonic on hardware)."""
         deadline = time.monotonic() + timeout_s
         while True:
             try:
@@ -38,6 +44,10 @@ class MavLink:
         self._latest: dict[str, Any] = {}
         self._rx_time: dict[str, float] = {}
         self._acks: list[Any] = []
+        self._clock = clock
+        # (t, roll, pitch, yaw) samples, newest last; long enough to cover
+        # camera latency (~0.17 s measured) with margin.
+        self._att_hist: deque[tuple[float, float, float, float]] = deque(maxlen=int(history_s * 200))
         self.statustext: list[str] = []
         self._running = True
         self._thread = threading.Thread(target=self._reader, daemon=True)
@@ -57,6 +67,8 @@ class MavLink:
                 self._rx_time[kind] = time.monotonic()
                 if kind == "COMMAND_ACK":
                     self._acks.append(m)
+                elif kind == "ATTITUDE":
+                    self._att_hist.append((self._clock(), m.roll, m.pitch, m.yaw))
                 elif kind == "STATUSTEXT":
                     self.statustext.append(m.text)
 
@@ -109,6 +121,27 @@ class MavLink:
     def attitude(self) -> tuple[float, float, float]:
         a = self.latest("ATTITUDE")
         return (a.roll, a.pitch, a.yaw) if a else (0.0, 0.0, 0.0)
+
+    def attitude_at(self, t: float) -> tuple[float, float, float]:
+        """Attitude interpolated at time t (camera timestamp, same clock).
+
+        De-rotating an image with the attitude at processing time instead of
+        capture time is a large error: up to ~165 ms of latency during a 15 deg
+        tilt manoeuvre moves a marker seen from 6 m by ~1.6 m (Step 8).
+        """
+        with self._lock:
+            hist = list(self._att_hist)
+        if not hist:
+            return 0.0, 0.0, 0.0
+        times = [h[0] for h in hist]
+        i = bisect.bisect_left(times, t)
+        if i <= 0:
+            return hist[0][1:]
+        if i >= len(hist):
+            return hist[-1][1:]
+        (t0, *a0), (t1, *a1) = hist[i - 1], hist[i]
+        w = (t - t0) / max(t1 - t0, 1e-9)
+        return tuple(float(x0 + w * (x1 - x0)) for x0, x1 in zip(a0, a1))  # type: ignore[return-value]
 
     def vel_ned(self) -> np.ndarray:
         lp = self.latest("LOCAL_POSITION_NED")
