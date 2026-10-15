@@ -57,6 +57,33 @@ python -m lander doctor
 make test
 ```
 
+## How to run
+Every terminal: `cd ~/vision_lander && source env.sh && source .venv/bin/activate`.
+Commands that only use the fast sim also need `unset PYTHONPATH` if ROS is sourced.
+
+```bash
+# Watch the trained policy land (Gazebo window, real time)
+python -m lander eval --policy results/runs/main_s0 --stage gazebo --gui --rtf 1 \
+    --kind circle --speed 1.5 --episodes 3 --out watch
+#   --policy pid            -> the PID baseline instead
+#   --kind static|straight|circle|figure8|random, --speed 0.5|1.5|2.5
+
+# Watch the real deployment runtime (ONNX + safety layer + motor cut) land
+python -m lander deploy rehearse --run main_s0 --gui --rtf 1 --kind straight --speed 0.5 --episodes 1
+
+# Full evaluations (results/eval/<out>/summary.md)
+python -m lander eval --policy results/runs/main_s0 --stage fast --out res_fast        # ~15 s
+python -m lander eval --policy results/runs/main_s0 --stage gazebo --episodes 10 --out res_gz   # ~20 min
+
+# Retrain (20M steps: ~10 min alone on the laptop GPU, ~27 min with 3 in parallel), pixel student, figures
+python -m lander train --run my_run --seed 0 --no-curriculum
+python scripts/run_dagger.py
+python scripts/make_figures.py
+make test-fast
+```
+Run Gazebo jobs one at a time (they share SITL ports), and avoid stacking heavy jobs on a
+15 GB laptop.
+
 ## Stack (verified 2026-10-13)
 Ubuntu 22.04 · ROS 2 Humble (optional) · Gazebo Harmonic 8.15 · ArduCopter SITL
 (master @ 6870d06) · ardupilot_gazebo (@ 50e62a5) · Python 3.10 · torch 2.14.1+cu126 ·

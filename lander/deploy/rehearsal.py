@@ -24,12 +24,13 @@ from lander.mav import MavLink
 
 
 def rehearse(cfg: dict, onnx_path: Path, kind: str, speed: float, episodes: int, out_dir: Path,
-             rtf: float = 5.0, seed: int = 7, log=print, residual_scale: float | None = None) -> list[dict]:
+             rtf: float = 5.0, seed: int = 7, log=print, residual_scale: float | None = None,
+             gui: bool = False) -> list[dict]:
     results = []
     for ep in range(episodes):
         # a fresh world per episode: after RTL the drone is disarmed at home, and removing it
         # for a respawn failed ("not a direct child of the world") -> "Arm: Leaning"
-        env = GazeboLandingEnv(cfg, rtf=rtf, seed=seed + ep)
+        env = GazeboLandingEnv(cfg, gui=gui, rtf=rtf, seed=seed + ep)
         env.set_scenario(kind, speed)
         try:
             env.reset()

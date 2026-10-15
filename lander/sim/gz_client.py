@@ -92,7 +92,13 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
         # display, needed for the downward camera when there is no GUI.
         cmd[2:2] = ["-s", "--headless-rendering"]
     # New session: lets us kill gz's whole process group (server + GUI) at once.
-    return subprocess.Popen(cmd, env=os.environ.copy(), start_new_session=True)
+    env = os.environ.copy()
+    # importing cv2 (opencv-python) points Qt at its own bundled plugins; the Gazebo
+    # GUI then fails to load "xcb" and takes the server down with it
+    for k in ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR"):
+        if "cv2" in env.get(k, ""):
+            env.pop(k)
+    return subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
 class GzWorld:

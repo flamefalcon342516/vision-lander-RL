@@ -28,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--seed", type=int, default=12345)
     ev.add_argument("--rtf", type=float, default=5.0)
     ev.add_argument("--out", required=True, help="output name under results/eval/")
+    ev.add_argument("--gui", action="store_true", help="gazebo: open the Gazebo GUI to watch")
+    ev.add_argument("--kind", default=None, help="gazebo: only this path type (static/straight/circle/figure8/random)")
+    ev.add_argument("--speed", type=float, default=None, help="gazebo: with --kind, rover speed in m/s")
     sim = sub.add_parser("sim", help="Gazebo tools")
     sim.add_argument("action", choices=["up", "drop-test", "fly-check", "sysid", "make-marker"])
     sim.add_argument("--gui", action="store_true", help="also open the Gazebo GUI")
@@ -45,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--speed", type=float, default=1.0)
     dp.add_argument("--episodes", type=int, default=3)
     dp.add_argument("--rtf", type=float, default=5.0)
+    dp.add_argument("--gui", action="store_true", help="rehearse: open the Gazebo GUI to watch")
     return parser
 
 
@@ -80,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage == "fast":
             recs = ev_mod.eval_fast(pol, cfg, args.episodes, args.seed, dr=not args.no_dr)
         else:
-            recs = ev_mod.eval_gazebo(pol, cfg, args.episodes, args.seed, rtf=args.rtf)
+            grid = [(args.kind, args.speed or 0.0)] if args.kind else None
+            recs = ev_mod.eval_gazebo(pol, cfg, args.episodes, args.seed, rtf=args.rtf, grid=grid, gui=args.gui)
         out = Path("results/eval") / args.out
         out.mkdir(parents=True, exist_ok=True)
         rows = ev_mod.summarize(recs)
@@ -154,7 +159,7 @@ def _deploy(args) -> int:
         from lander.deploy.rehearsal import rehearse
 
         out = Path("results/rehearsal")
-        res = rehearse(cfg, onnx, args.kind, args.speed, args.episodes, out, rtf=args.rtf,
+        res = rehearse(cfg, onnx, args.kind, args.speed, args.episodes, out, rtf=args.rtf, gui=args.gui,
                        residual_scale=res_scale)
         (out / f"summary_{args.kind}_{args.speed}.json").write_text(json.dumps(res, indent=1))
         return 0

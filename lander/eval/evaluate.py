@@ -71,11 +71,11 @@ def eval_fast(policy: Policy, cfg: dict, episodes: int, seed: int, dr: bool = Tr
 
 
 def eval_gazebo(policy: Policy, cfg: dict, episodes: int, seed: int, rtf: float = 5.0,
-                grid: list[tuple[str, float]] | None = None, log=print) -> list[dict]:
+                grid: list[tuple[str, float]] | None = None, log=print, gui: bool = False) -> list[dict]:
     from lander.envs.gazebo_env import GazeboLandingEnv
 
     grid = grid or eval_grid(cfg)
-    env = GazeboLandingEnv(cfg, rtf=rtf, seed=seed)
+    env = GazeboLandingEnv(cfg, gui=gui, rtf=rtf, seed=seed)
     records: list[dict] = []
     try:
         for kind, speed in grid:
