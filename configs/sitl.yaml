@@ -17,6 +17,7 @@ workdir: .sitl                # eeprom.bin, logs, terrain go here (gitignored)
 
 drone:
   model_uri: model://lander_iris
+  showcase_model_uri: model://lander_iris_showcase   # --gui only: + cosmetic shell/nav lights
   name: iris
   # Resting height of the iris origin above the ground (same as iris_runway.sdf).
   spawn_z_m: 0.195

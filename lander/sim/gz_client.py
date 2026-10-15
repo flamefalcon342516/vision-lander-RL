@@ -96,7 +96,25 @@ def _kill_group(proc: subprocess.Popen) -> None:
             pass
 
 
-def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Popen:
+def follow_in_gui(model: str, offset: tuple[float, float, float] = (-4.0, -4.0, 3.0)) -> None:
+    """Point the GUI camera at `model` and keep following it (background; the GUI may
+    still be starting). Offset is behind-left and above, in metres."""
+    def run() -> None:
+        x, y, z = offset
+        for _ in range(60):
+            r = subprocess.run(["gz", "service", "-s", "/gui/follow/offset", "--reqtype", "gz.msgs.Vector3d",
+                                "--reptype", "gz.msgs.Boolean", "--timeout", "1000",
+                                "--req", f"x: {x}, y: {y}, z: {z}"], capture_output=True, text=True)
+            if "data: true" in r.stdout:
+                subprocess.run(["gz", "service", "-s", "/gui/follow", "--reqtype", "gz.msgs.StringMsg",
+                                "--reptype", "gz.msgs.Boolean", "--timeout", "1000",
+                                "--req", f'data: "{model}"'], capture_output=True, text=True)
+                return
+            time.sleep(1.0)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def launch_gz(world_file: str, headless: bool, verbosity: int, gui_config: str | None = None) -> subprocess.Popen:
     """Start `gz sim` as a child process.
 
     -s     : server only (no GUI). Physics and sensors still run; this is what
@@ -127,7 +145,10 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
             while server.poll() is None:
                 r = subprocess.run(["gz", "service", "-l"], env=env, capture_output=True, text=True)
                 if "/gazebo/worlds" in r.stdout:
-                    gui_proc = subprocess.Popen(["gz", "sim", "-g", "-v", str(verbosity)], env=env,
+                    gui_cmd = ["gz", "sim", "-g", "-v", str(verbosity)]
+                    if gui_config:
+                        gui_cmd += ["--gui-config", gui_config]
+                    gui_proc = subprocess.Popen(gui_cmd, env=env,
                                                 start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
                     atexit.register(_kill_group, gui_proc)   # the watcher below dies with us
                     while server.poll() is None:      # close the window with the server
@@ -142,7 +163,8 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
 class GzWorld:
     """Client for the services and topics of one running world."""
 
-    def __init__(self, world: str, service_timeout_ms: int, physics_step_s: float) -> None:
+    def __init__(self, world: str, service_timeout_ms: int, physics_step_s: float,
+                 track_poses: bool = True) -> None:
         self.world = world
         self._step_s = physics_step_s
         self.timeout_ms = service_timeout_ms
@@ -153,7 +175,10 @@ class GzWorld:
         self._poses: dict[str, tuple[float, Vec3]] = {}
         # Callbacks run on gz-transport's own thread, hence the lock.
         self._node.subscribe(Clock, f"/world/{world}/clock", self._on_clock)
-        self._node.subscribe(Pose_V, f"/world/{world}/pose/info", self._on_poses)
+        # pose/info carries every model, link AND visual (~60 Hz); parsing it in Python costs
+        # CPU in proportion to scene size. Users with their own pose topics can opt out.
+        if track_poses:
+            self._node.subscribe(Pose_V, f"/world/{world}/pose/info", self._on_poses)
 
     def close(self) -> None:
         self._services.close()

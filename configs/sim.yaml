@@ -1,6 +1,10 @@
 # Gazebo settings shared by the sim tooling (Step 1+).
 world_name: lander_world                    # must match <world name=...> in the SDF
 world_file: gazebo/worlds/lander_world.sdf
+# --gui only: same world + scenery, and a GUI layout with the drone camera feed.
+# Headless runs (all measured results) always use world_file.
+showcase_world_file: gazebo/worlds/lander_world_showcase.sdf
+showcase_gui_config: gazebo/gui/showcase.config
 physics_step_s: 0.001                       # must match <max_step_size>
 startup_timeout_s: 30                       # wait this long for the world clock to appear
 service_timeout_ms: 3000                    # gz service request timeout

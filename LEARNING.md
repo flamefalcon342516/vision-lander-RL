@@ -750,3 +750,13 @@ never visited (compounding error). **DAgger** fixes this: roll out a mix of teac
   fixes (Step 13); one open issue (pose jump + floor rule) remains before hardware.
 - **Next:** train or fine-tune the residual in Gazebo (or fit Stage A to Gazebo's touchdown
   behaviour), add a precision term to the reward, and render student frames from Gazebo.
+
+### Engineering note: scene size slowed perception (2026-10-15)
+A showcase world with ~100 scenery objects made the policy lose the rover (marker detected on
+31–44% of control steps vs ~90%). Bisecting showed lighting and ground were fine; the objects
+were the trigger, but not through rendering: our client subscribed to `/world/.../pose/info`,
+which carries every model, link *and visual* at ~60 Hz, and parsed it in Python, starving the
+control loop. The env reads poses from per-model PosePublisher topics, so it now skips
+pose/info (`GzWorld(track_poses=False)`); the 100-object world then landed 3/3 at 88–94%
+visibility. All measured results used the plain world with that (smaller) overhead for both
+controllers, so comparisons stand; absolute Gazebo rates may be slightly pessimistic.

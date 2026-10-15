@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <!--
+    SHOWCASE copy of lander_iris (GUI only): same vehicle + a cosmetic shell.
+    The stock ArduPilot iris (motors, LiftDrag, ArduPilotPlugin) included
+    unchanged, plus a RIGIDLY mounted downward camera. No gimbal on purpose:
+    cheap real drones have a fixed camera, so the camera tilts with the body
+    and perception must de-rotate by roll/pitch (Step 5).
+  -->
+  <model name="lander_iris_showcase">
+    <include>
+      <uri>model://iris_with_ardupilot</uri>
+      <name>iris</name>
+    </include>
+
+    <link name="camera_link">
+      <!-- 8 cm below the body centre, looking straight down.
+           A Gazebo camera looks along its link's +x with image-up = +z.
+           Pitch +90 deg maps link +x -> world -z (down) and link +z -> body
+           +x (forward), so the TOP of the image points at the nose and the
+           image's right is the body's right. -->
+      <pose>0 0 -0.08 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia><ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry><box><size>0.02 0.03 0.03</size></box></geometry>
+      </visual>
+      <sensor name="down_camera" type="camera">
+        <!-- Values here are mirrored in configs/camera.yaml for perception. -->
+        <camera>
+          <horizontal_fov>1.5708</horizontal_fov>   <!-- 90 deg -->
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip><near>0.05</near><far>50</far></clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0</mean>
+            <stddev>0.007</stddev>   <!-- fraction of full scale, ~2 grey levels -->
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>15</update_rate>   <!-- Hz of SIM time; policy runs at 10 Hz -->
+        <topic>/lander/camera/image</topic>
+      </sensor>
+    </link>
+
+    <joint name="camera_mount" type="fixed">
+      <parent>iris::iris_with_standoffs::base_link</parent>
+      <child>camera_link</child>
+    </joint>
+
+    <!-- Cosmetic shell + nav lights (GUI showcase only). 1 g on a fixed joint, so the
+         flight dynamics are unchanged; every visual is above the camera lens (z = -0.08),
+         so none of it can appear in the downward camera image. -->
+    <link name="shell_link">
+      <inertial>
+        <mass>0.001</mass>
+        <inertia><ixx>1e-8</ixx><iyy>1e-8</iyy><izz>1e-8</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="canopy"><pose>0.0 0 0.065 0 0 0</pose><geometry><ellipsoid><radii>0.12 0.075 0.032</radii></ellipsoid></geometry><material><ambient>0.95 0.4 0.05 1</ambient><diffuse>0.95 0.4 0.05 1</diffuse><specular>0.8 0.8 0.8 1</specular></material></visual>
+      <visual name="canopy_stripe"><pose>0.0 0 0.072 0 0 0</pose><geometry><ellipsoid><radii>0.122 0.022 0.03</radii></ellipsoid></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.8 0.8 0.8 1</specular></material></visual>
+      <visual name="gps_mast"><pose>-0.04 0 0.105 0 0 0</pose><geometry><cylinder><radius>0.006</radius><length>0.04</length></cylinder></geometry><material><ambient>0.08 0.08 0.09 1</ambient><diffuse>0.08 0.08 0.09 1</diffuse><specular>0.5 0.5 0.5 1</specular></material></visual>
+      <visual name="gps_puck"><pose>-0.04 0 0.128 0 0 0</pose><geometry><cylinder><radius>0.032</radius><length>0.012</length></cylinder></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.8 0.8 0.8 1</specular></material></visual>
+      <visual name="nav_port"><pose>0.12 0.205 0.005 0 0 0</pose><geometry><sphere><radius>0.011</radius></sphere></geometry><material><ambient>1 0.05 0.05 1</ambient><diffuse>1 0.05 0.05 1</diffuse><specular>0.5 0.5 0.5 1</specular><emissive>1 0.05 0.05 1</emissive></material></visual>
+      <visual name="nav_starboard"><pose>0.12 -0.205 0.005 0 0 0</pose><geometry><sphere><radius>0.011</radius></sphere></geometry><material><ambient>0.05 1 0.2 1</ambient><diffuse>0.05 1 0.2 1</diffuse><specular>0.5 0.5 0.5 1</specular><emissive>0.05 1 0.2 1</emissive></material></visual>
+      <visual name="strobe_l"><pose>-0.12 0.19 0.005 0 0 0</pose><geometry><sphere><radius>0.011</radius></sphere></geometry><material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><specular>0.5 0.5 0.5 1</specular><emissive>1 1 1 1</emissive></material></visual>
+      <visual name="strobe_r"><pose>-0.12 -0.19 0.005 0 0 0</pose><geometry><sphere><radius>0.011</radius></sphere></geometry><material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><specular>0.5 0.5 0.5 1</specular><emissive>1 1 1 1</emissive></material></visual>
+    </link>
+    <joint name="shell_mount" type="fixed">
+      <parent>iris::iris_with_standoffs::base_link</parent>
+      <child>shell_link</child>
+    </joint>
+
+    <!-- Ground-truth model pose at a fixed SIM-time rate, for rewards/metrics
+         (never fed to the policy). pose/info is ~60 Hz WALL time, unusable. -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_model_pose>true</publish_model_pose>
+      <publish_nested_model_pose>false</publish_nested_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>50</update_frequency>
+    </plugin>
+  </model>
+</sdf>

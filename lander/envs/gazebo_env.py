@@ -43,7 +43,7 @@ from lander.perception import frames as fr
 from lander.perception.detector import CameraModel, MarkerDetector
 from lander.perception.kalman import MarkerKF
 from lander.sim.demo import _stop
-from lander.sim.gz_client import GzWorld, Vec3, launch_gz, project_root
+from lander.sim.gz_client import GzWorld, Vec3, follow_in_gui, launch_gz, project_root
 from lander.sim.sitl import launch_sitl, stop_process
 
 
@@ -99,10 +99,14 @@ class GazeboLandingEnv(gym.Env):
     # ------------------------------------------------------------ lifecycle
     def _start(self) -> None:
         c = self.cfg
-        self._gz = launch_gz(str(project_root() / c["sim"]["world_file"]), headless=not self.gui,
-                             verbosity=c["sim"]["verbosity"])
+        show = self.gui and "showcase_world_file" in c["sim"]   # scenery + camera feed, GUI only
+        world = c["sim"]["showcase_world_file"] if show else c["sim"]["world_file"]
+        self._gz = launch_gz(str(project_root() / world), headless=not self.gui,
+                             verbosity=c["sim"]["verbosity"],
+                             gui_config=str(project_root() / c["sim"]["showcase_gui_config"]) if show else None)
+        # poses come from the per-model PosePublisher topics, not pose/info
         self.world = GzWorld(c["sim"]["world_name"], c["sim"]["service_timeout_ms"],
-                             c["sim"]["physics_step_s"])
+                             c["sim"]["physics_step_s"], track_poses=False)
         self.world.wait_until_up(c["sim"]["startup_timeout_s"])
         self.node = Node()
         self.node.subscribe(Image, c["camera"]["image_topic"], self._on_image)
@@ -121,7 +125,10 @@ class GazeboLandingEnv(gym.Env):
         c, d = self.cfg, self.cfg["sitl"]["drone"]
         sx, sy = self.genv["drone_spawn_xy_m"]
         self.spawn_enu = np.array([sx, sy, d["spawn_z_m"]])
-        self.world.spawn(d["model_uri"], d["name"], Vec3(*self.spawn_enu), math.radians(d["spawn_yaw_deg"]))
+        uri = d.get("showcase_model_uri", d["model_uri"]) if self.gui else d["model_uri"]
+        self.world.spawn(uri, d["name"], Vec3(*self.spawn_enu), math.radians(d["spawn_yaw_deg"]))
+        if self.gui:
+            follow_in_gui(d["name"])
         self.world.set_real_time_factor(self.rtf)
         self.world.pause(False)
         self._sitl = launch_sitl({**c["sitl"], "speedup": self.rtf}, c["paths"], project_root())
