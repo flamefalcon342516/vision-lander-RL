@@ -634,3 +634,96 @@ These measurements are the core research finding of the project.
   - success flat for millions of steps;
   - all failures of one type (timeouts, or misses at a characteristic distance);
   - an isolation experiment on a fixed scenario.
+
+## Step 11 — Domain randomisation (Stage A and Gazebo)
+**Concept:** a policy trained on one exact simulator learns that simulator's quirks. Domain
+randomisation (DR) samples the physics and sensing parameters per episode so the policy has to
+work across a *range*, ideally one that contains reality.
+
+- **Stage A** (configs/fast_env.yaml): drone response (time constant, delay, accel/jerk limits from
+  the Step 8 sysid ± margins), OU wind gusts, detection range shift (lighting/blur/print), pose noise.
+- **Gazebo** (configs/gazebo_env.yaml `dr:`): steady wind 0–4 m/s plus OU gusts applied as a drag
+  force on the drone base link (F = k|v_air|v_air), sun intensity 0.35–1.0 and elevation 25–90°.
+  Off for plain evaluation, so Gazebo numbers are on the nominal world.
+
+**Measured (ablation `no_dr_s0`, Step 12):** training *without* DR scored 38% on the DR test set,
+the same as the DR-trained seeds (37–38%). In this project DR did not buy robustness. Likely
+reason: the residual sits on a PID that already absorbs most parameter variation, so the residual
+has little DR-specific to learn. Reported as a null result.
+
+**Interview Q&A:**
+- *When does DR fail?* When the randomised range does not cover the real gap (the Stage A → Gazebo gap
+  in Step 12 may lie in parameters we did not randomise, e.g. touchdown contact; not yet tested), or when
+  the range is so wide that the best policy is overly conservative.
+
+## Step 12 — Evaluation protocol and results
+**Protocol** (lander/eval/evaluate.py): a fixed grid of 13 cells — static + {straight, circle,
+figure-8, random} × {0.5, 1.5, 2.5} m/s — fixed seeds, Wilson 95% CIs, outcomes split into
+success / miss / crash / out of bounds / timeout. Stage A: 500 episodes per cell per policy
+(1000 for the PID). Gazebo + SITL: 3 per cell at 5× real time.
+
+| Controller | Stage A, full DR | Stage A, nominal | Gazebo (n=39) |
+|---|---|---|---|
+| PID (tuned) | 31% | 48% | 54%, 7.3 s, 4.8 cm |
+| residual PPO s0 / s1 / s2 | 38% / 37% / 38% | 51% (s0) | 51%, 4.7 s, 11.8 cm |
+| curriculum s0 | 36% | 48% | – |
+| no DR s0 | 38% | 50% | – |
+
+**Reading the results:**
+- Stage A: the residual wins on every seed, mainly on curves at 1.5 m/s (circle 28% vs 18%,
+  figure-8 30% vs 17%) and lands ~35% faster. Nobody solves curves at 2.5 m/s (≤ 2%); a likely
+  (untested) cause is the drone's identified acceleration/jerk limits versus the rover's turn rate.
+- Gazebo: **no measurable gain**. Both controllers land every low-speed cell and fail the fast
+  curves; the residual lands faster but less centred. The sim-to-sim scatter
+  (docs/figures/sim_to_sim.png) shows Gazebo is *more* bimodal than Stage A: easy cells are easier,
+  hard cells are harder.
+- Curriculum: slightly worse on curves (circle 1.5: 15% vs 28%), consistent with Step 9's
+  finding that starting static teaches a "dive" habit.
+
+**Interview Q&A:**
+- *Why report a CI and not just a mean?* With 3 episodes per cell a Gazebo cell at 100% has a CI
+  of 44–100%; two controllers at 51% and 54% over 39 episodes are statistically indistinguishable.
+- *Why is the Stage A success rate lower than Gazebo's?* Stage A's grid uses full DR; Gazebo is
+  the nominal world, and the two simulators differ. Compare controllers within a column, not across.
+
+## Step 13 — Deployment runtime (summary; code in lander/deploy/)
+- `export.py`: ONNX actor; parity with SB3 to 1e-4; **0.021 ms mean, 0.044 ms max** per inference on
+  one laptop CPU thread (re-measured for the final residual policy).
+- `runtime.py`: fixed 10 Hz loop, newest-frame camera thread, attitude at image time, numpy PID +
+  ONNX residual, latency budget logged per tick, motor cut on the deck.
+- `safety.py`: a separate filter, unit-tested exhaustively — pilot override → go silent, heartbeat
+  loss, NaN, geofence, marker lost → hover then RTL, ceiling, blind-descent floor, speed clamps.
+- `rehearsal.py`: runs the *real* runtime against Gazebo + SITL over the serial-port MAVLink path.
+- **Concept:** the learned policy is never trusted alone; the safety layer has veto power and is
+  much simpler than the policy, so it can be tested exhaustively.
+
+## Step 14 — Real hardware plan
+See docs/HARDWARE.md: parts, flight-controller parameters, checkerboard calibration, marker
+sizing, the 100 ms latency budget, and a phased go/no-go test plan (bench → tethered → static
+marker → slow rover). Not flown: this project ends at SITL.
+
+## Step 15 — Pixel student via DAgger (stretch)
+**Concept:** the teacher (residual PPO) sees the marker *pose*; the student sees only *pixels*.
+Plain behaviour cloning fails because the student's small errors take it to states the teacher
+never visited (compounding error). **DAgger** fixes this: roll out a mix of teacher and student
+(β = 1, 0.5, 0.25, …), label *every* visited state with the teacher's action, aggregate, retrain.
+
+- Student: a small CNN on two stacked 96×72 grey frames + drone velocity/attitude; 5 iterations ×
+  38 400 samples (192k total, ~2.6 GB as uint8).
+- **Result: 34.9% under full DR (n=5200) vs teacher 38% and PID 31%** — ~90% of the teacher.
+  Same failure shape as the teacher: fails on fast curves (timeouts dominate at 2.5 m/s).
+- **Caveat:** frames come from a synthetic renderer in Stage A (lander/stretch/pixels.py), not the
+  Gazebo camera. This shows the policy is learnable from pixels; it is not a Gazebo-validated
+  pixel controller.
+- Engineering note: the first run froze the laptop at iteration 3. Each iteration kept the
+  sample list, the previous concatenated tensor and the new one (~3 copies); freeing the old tensor
+  first cut the peak to two copies and the rerun stayed at 4.5 GB.
+
+## Step 16 — Honest summary
+- **Built:** a full Gazebo + ArduCopter SITL pipeline, ArUco → PnP → Kalman perception, a fast
+  identified simulator, PPO training, a deployment runtime with a safety layer, and a pixel student.
+- **Found:** PPO from scratch falls into dive / hover local optima on moving targets; residual PPO
+  on top of a PID fixes that and improves Stage A success by ~7 points (3 seeds) and landing time by
+  ~35%. That gain **did not transfer** to Gazebo (51% vs 54%, n=39) — the main open problem.
+- **Next:** train or fine-tune the residual in Gazebo (or fit Stage A to Gazebo's touchdown
+  behaviour), add a precision term to the reward, and render student frames from Gazebo.

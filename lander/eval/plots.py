@@ -58,7 +58,8 @@ def training_curves(runs: dict[str, list[Path]], out: Path) -> Path:
                 ax.fill_between(grid / 1e6, ys.min(0), ys.max(0), color=color, alpha=0.15, lw=0)
     axes[0].set(title="Curriculum stage reached", xlabel="environment steps (M)", ylabel="stage (0 = static ... 4 = full + DR)")
     axes[1].set(title="Training success rate (on the current stage)", xlabel="environment steps (M)", ylabel="success", ylim=(0, 1))
-    axes[1].legend(loc="lower right")
+    h, lab = axes[1].get_legend_handles_labels()
+    fig.legend(h, lab, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.08))
     return _save(fig, out)
 
 
@@ -78,6 +79,8 @@ def success_by_speed(summaries: dict[str, list[dict]], out: Path, title: str) ->
             ax.errorbar(x, y, yerr=[lo, hi], color=color, marker="o", capsize=3, label=label)
             ax.set_title(path)
             ax.set_xlabel("rover speed (m/s)")
+            if path == "static":
+                ax.set(xlim=(-0.5, 0.5), xticks=[0])
     axes[0].set_ylabel("success rate")
     axes[0].set_ylim(0, 1.02)
     axes[-1].legend(loc="upper right")
@@ -152,9 +155,9 @@ def landing_error(records: dict[str, list[dict]], out: Path) -> Path:
     for (label, recs), color in zip(records.items(), (BLUE, ORANGE)):
         e = [r["final_xy_err"] for r in recs if r["outcome"] == 1]
         if e:
-            ax.hist(e, bins=bins, histtype="step", lw=2, color=color, density=True,
+            ax.hist(e, bins=bins, histtype="step", lw=2, color=color, density=True, cumulative=True,
                     label=f"{label} (median {np.median(e) * 100:.1f} cm)")
-    ax.set(xlabel="horizontal error at touchdown (m), successful landings", ylabel="density",
-           title="Landing precision")
-    ax.legend(loc="upper right")
+    ax.set(xlabel="horizontal error at touchdown (m), successful landings",
+           ylabel="fraction of landings ≤ error", title="Landing precision (cumulative)", ylim=(0, 1.02))
+    ax.legend(loc="upper left")
     return _save(fig, out)

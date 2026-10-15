@@ -141,6 +141,7 @@ def dagger(cfg: dict, teacher, out_dir: Path, iters: int = 5, steps_per_iter: in
                 act = a_teacher
             obs, _, done, _ = env.core.step(act)
             prev = np.where(done[:, None, None], rend.render(), cur)  # new episode: fresh "previous"
+        X = V = Y = None                    # free last iteration's copy before re-concatenating (RAM peak)
         X = torch.from_numpy(np.concatenate(imgs))
         V = torch.from_numpy(np.concatenate(vecs))
         Y = torch.from_numpy(np.concatenate(labels))
