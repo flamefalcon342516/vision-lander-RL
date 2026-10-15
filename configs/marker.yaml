@@ -4,3 +4,16 @@ marker_id: 0
 marker_size_m: 0.50         # black-square edge length: the size solvePnP needs
 border_m: 0.05              # white quiet zone on each side (needed for detection)
 texture_px: 600             # texture resolution for the whole (marker + border) square
+
+# Nested marker (off = the published single-marker setup). A small marker (inner_id) sits in
+# a WHITE data cell next to the centre, so the camera keeps lock below ~0.47 m, where the
+# big marker no longer fits in the frame. Synthetic renders (random pose/tilt/yaw):
+#   outer detected 6/6 from 8 m to 2 m; inner 6/6 from 1.0 m to 0.12-0.15 m; both at 1.2-1.5 m.
+# The inner marker costs the outer one data cell at close range, so the detector must
+# accept 1 corrected bit (error_correction_rate 1.0; DICT_4X4_50 corrects at most 1 bit).
+nested:
+  enabled: false
+  inner_id: 1
+  cell: [2, 2]              # (row, col) in the 6x6 grid incl. border; must be a white data cell
+  inner_fraction: 0.5       # inner black square = this x cell size (0.5 m / 6 x 0.5 = 4.2 cm)
+error_correction_rate: 0.6  # OpenCV default (= 0 bits for this dictionary); nested needs 1.0

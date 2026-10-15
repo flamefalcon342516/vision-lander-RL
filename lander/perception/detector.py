@@ -35,6 +35,7 @@ class Detection:
     corners: np.ndarray      # (4,2) pixel corners
     reproj_err_px: float     # RMS reprojection error: a detection-quality metric
     side_px: float           # mean side length in pixels (another quality cue)
+    marker_id: int = 0       # which marker gave the pose (nested: outer or inner)
 
 
 class MarkerDetector:
@@ -44,8 +45,16 @@ class MarkerDetector:
         s = marker_cfg["marker_size_m"]
         # Object points in the marker frame, in OpenCV's corner order
         # (TL, TR, BR, BL); z = 0 plane. Required order for SOLVEPNP_IPPE_SQUARE.
-        self.obj = np.array([[-s / 2, s / 2, 0], [s / 2, s / 2, 0],
-                             [s / 2, -s / 2, 0], [-s / 2, -s / 2, 0]], dtype=np.float64)
+        self.obj = self._square(s)
+        # id -> (object points, offset from that marker's centre to the PAD centre, in the
+        # marker frame: x right, y up). Preference order = dict order (outer first).
+        self.markers = {self.marker_id: (self.obj, np.zeros(3))}
+        nest = marker_cfg.get("nested", {})
+        if nest.get("enabled"):
+            cell = s / 6
+            r, c = nest["cell"]
+            inner_centre = np.array([(c + 0.5 - 3) * cell, (3 - (r + 0.5)) * cell, 0.0])
+            self.markers[nest["inner_id"]] = (self._square(cell * nest["inner_fraction"]), -inner_centre)
         dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, marker_cfg["dictionary"]))
         params = cv2.aruco.DetectorParameters()
         # Corner refinement dominates PnP accuracy for small (far) markers.
@@ -53,7 +62,13 @@ class MarkerDetector:
         #   NONE +1.2/+3.0/+5.5/+3.5 %   SUBPIX +0.4/+0.6/+1.8/+3.7 %
         #   APRILTAG +0.0/-0.8/-0.8/-0.2 %  for 1.14 ms vs 0.91 ms per frame.
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+        params.errorCorrectionRate = float(marker_cfg.get("error_correction_rate", 0.6))
         self.detector = cv2.aruco.ArucoDetector(dictionary, params)
+
+    @staticmethod
+    def _square(s: float) -> np.ndarray:
+        return np.array([[-s / 2, s / 2, 0], [s / 2, s / 2, 0],
+                         [s / 2, -s / 2, 0], [-s / 2, -s / 2, 0]], dtype=np.float64)
 
     def detect(self, image: np.ndarray) -> Detection | None:
         """Return the target marker's pose relative to the camera, or None."""
@@ -61,10 +76,16 @@ class MarkerDetector:
         corners, ids, _ = self.detector.detectMarkers(gray)
         if ids is None:
             return None
-        hits = np.flatnonzero(ids.ravel() == self.marker_id)
-        if len(hits) == 0:
-            return None
-        c = corners[hits[0]].reshape(4, 2).astype(np.float64)
+        for mid, (obj, to_pad) in self.markers.items():
+            hits = np.flatnonzero(ids.ravel() == mid)
+            if len(hits):
+                det = self._pose(corners[hits[0]].reshape(4, 2).astype(np.float64), obj)
+                if det is not None:
+                    p_cam, yaw, c, err, side, r = det
+                    return Detection(p_cam + r @ to_pad, yaw, c, err, side, mid)
+        return None
+
+    def _pose(self, c: np.ndarray, obj: np.ndarray):
         # IPPE_SQUARE: the analytic solver for a planar square. A planar target
         # always has TWO pose solutions (the second is a "flipped" plane). When
         # viewed nearly head-on -- i.e. most of a landing -- they become
@@ -77,16 +98,16 @@ class MarkerDetector:
         # fronto-parallel view (both returned solutions were the same wrong
         # one). SQPnP (globally optimal, ~0.05 ms) is added as a third
         # candidate so the selection below always has a correct option.
-        n, rvecs, tvecs, _ = cv2.solvePnPGeneric(self.obj, c, self.cam.k, self.cam.dist,
+        n, rvecs, tvecs, _ = cv2.solvePnPGeneric(obj, c, self.cam.k, self.cam.dist,
                                                  flags=cv2.SOLVEPNP_IPPE_SQUARE)
-        ok, rv_sq, tv_sq = cv2.solvePnP(self.obj, c, self.cam.k, self.cam.dist,
+        ok, rv_sq, tv_sq = cv2.solvePnP(obj, c, self.cam.k, self.cam.dist,
                                         flags=cv2.SOLVEPNP_SQPNP)
         candidates = list(zip(rvecs, tvecs)) + ([(rv_sq, tv_sq)] if ok else [])
         if not candidates:
             return None
         best = None
         for rv, tv in candidates:
-            proj, _ = cv2.projectPoints(self.obj, rv, tv, self.cam.k, self.cam.dist)
+            proj, _ = cv2.projectPoints(obj, rv, tv, self.cam.k, self.cam.dist)
             e = float(np.sqrt(np.mean(np.sum((proj.reshape(4, 2) - c) ** 2, axis=1))))
             facing = cv2.Rodrigues(rv)[0][2, 2] < 0
             key = (not facing, e)
@@ -96,4 +117,4 @@ class MarkerDetector:
         r, _ = cv2.Rodrigues(rvec)
         yaw = float(np.arctan2(r[1, 0], r[0, 0]))  # marker x-axis in the image plane
         side = float(np.mean(np.linalg.norm(c - np.roll(c, 1, axis=0), axis=1)))
-        return Detection(tvec.ravel(), yaw, c, err, side)
+        return tvec.ravel(), yaw, c, err, side, r

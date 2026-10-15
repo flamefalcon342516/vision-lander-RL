@@ -209,12 +209,13 @@ class GazeboLandingEnv(gym.Env):
         # attitude at the moment the image was captured, not now (see MavLink.attitude_at)
         roll, pitch, _ = self.mav.attitude_at(img_t)
         p_level = fr.body_to_level(fr.cam_to_body(det.p_cam, self.mount), roll, pitch)
-        self.kf.update(np.array([0]), p_level[None])
+        accepted = bool(self.kf.update(np.array([0]), p_level[None])[0])   # False: gated outlier
         truth, _ = self._true_state()
         self.detection_log.append({"meas": p_level, "truth": truth.d[0], "h": float(truth.h[0]),
                                    "age_s": self.world.sim_time - img_t,
-                                   "reproj_px": det.reproj_err_px, "side_px": det.side_px})
-        return True, img_t
+                                   "reproj_px": det.reproj_err_px, "side_px": det.side_px,
+                                   "accepted": accepted})
+        return accepted, img_t
 
     def _obs(self, visible: bool) -> np.ndarray:
         _, _, yaw = self.mav.attitude()

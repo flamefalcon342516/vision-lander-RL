@@ -190,8 +190,7 @@ class Runtime:
                 if d is not None:
                     roll, pitch, _ = self.mav.attitude_at(last_img_t)   # image-time attitude
                     p = fr.body_to_level(fr.cam_to_body(d.p_cam, self.mount), roll, pitch)
-                    self.kf.update(np.array([0]), p[None])
-                    visible = True
+                    visible = bool(self.kf.update(np.array([0]), p[None])[0])   # False: gated outlier
             obs = tk.build_obs(self.kf.rel_pos, self.kf.rover_vel, self.kf.initialised, v_level[None],
                                np.array([visible]), self.kf.since_meas, prev_action[None], self.task)
             t0 = time.perf_counter()
@@ -230,7 +229,12 @@ class Runtime:
                          "est_x": est[0], "est_y": est[1], "est_h": est[2],
                          "vx": out.velocity[0], "vy": out.velocity[1], "vz": out.velocity[2],
                          "decision": out.decision.value, "reasons": "|".join(out.reasons),
-                         "mode": state.mode})
+                         "mode": state.mode,
+                         # what the safety rules saw (altitude is the FC's, above home)
+                         "alt_m": state.alt_m, "marker_lost_s": state.marker_lost_s,
+                         "marker_xy_err_m": state.marker_xy_err_m,
+                         "rejected": int(self.kf.rejected[0]),
+                         "v_cmd_x": v_cmd[0], "v_cmd_y": v_cmd[1], "v_cmd_z": v_cmd[2]})
             if out.decision == Decision.SILENT and state.mode != "GUIDED":
                 outcome = f"pilot_override:{state.mode}"
                 break

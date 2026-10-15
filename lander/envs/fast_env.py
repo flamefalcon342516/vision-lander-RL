@@ -54,6 +54,14 @@ class FastLandingCore:
         self.cam = CameraModel.from_config(cfg["camera"])
         self.mount = np.array(cfg["camera"]["mount_offset_body_frd_m"])
         self.half = cfg["marker"]["marker_size_m"] / 2
+        nest = cfg["marker"].get("nested", {})
+        self.nested = bool(nest.get("enabled"))
+        if self.nested:   # inner marker: half size and centre offset on the deck (see marker.yaml)
+            cell = cfg["marker"]["marker_size_m"] / 6
+            r, c = nest["cell"]
+            self.inner_half = cell * nest["inner_fraction"] / 2
+            self.inner_off = np.array([(c + 0.5 - 3) * cell, (3 - (r + 0.5)) * cell])
+            self.size_ratio = self.half / self.inner_half
         self.sub_dt = self.fe["substep_s"]
         self.n_sub = int(round(self.task["control_dt_s"] / self.sub_dt))
         self.rover = RoverFleet(n, self.rng)
@@ -212,8 +220,47 @@ class FastLandingCore:
         roll, pitch = self.att_hist[rows, slot, 0], self.att_hist[rows, slot, 1]
         # marker corners (orientation = rover heading) in the level frame
         th = self.rover.heading[rows]
+        inside, side = self._project_square(rel, th, roll, pitch, self.half, np.zeros(2))
+        p_det = 1 / (1 + np.exp(-(side - p["side50"][rows]) / det["side_width_px"]))
+        p_det *= 1 - p["dropout"][rows]
+        u_rand = self.rng.uniform(size=k)
+        depth_scale = np.ones(k)
+        if self.nested:
+            nd = det["nested"]
+            in_inside, in_side = self._project_square(rel, th, roll, pitch, self.inner_half, self.inner_off)
+            # once the inner marker resolves, it corrupts one cell of the outer (measured handover)
+            p_det *= 1 - 1 / (1 + np.exp(-(in_side - nd["outer_lost_inner_side_px"]) / nd["side_width_px"]))
+            p_in = 1 / (1 + np.exp(-(in_side - nd["inner_side50_px"] * p["side50"][rows] / det["side50_px"])
+                                   / nd["side_width_px"])) * (1 - p["dropout"][rows])
+            outer = inside & (u_rand < p_det)
+            inner = ~outer & in_inside & (self.rng.uniform(size=k) < p_in)
+            visible = outer | inner
+            depth_scale[inner] = self.size_ratio    # PnP depth error ~ h^2 / marker size
+        else:
+            visible = inside & (u_rand < p_det)
+        # measurement: centre in camera frame, noise, depth bias (scales the ray)
+        centre = (fr.level_to_body(rel, roll, pitch) - self.mount) @ fr.R_BODY_CAM
+        hgt = np.maximum(rel[:, 2], 0.1)
+        ns = p["noise"][rows]
+        centre[:, :2] += self.rng.standard_normal((k, 2)) * (det["lat_std_m_per_m"] * hgt * ns)[:, None]
+        centre[:, 2] += self.rng.standard_normal(k) * det["depth_std_m_per_m2"] * hgt ** 2 * ns * depth_scale
+        centre *= (1 + p["bias"][rows])[:, None]
+        # de-rotate with the attitude at the IMAGE time (+ EKF noise), as gazebo_env does
+        an = det["attitude_noise_rad"]
+        roll_m = roll + an * self.rng.standard_normal(k)
+        pitch_m = pitch + an * self.rng.standard_normal(k)
+        meas = fr.body_to_level(centre @ fr.R_BODY_CAM.T + self.mount, roll_m, pitch_m)
+        upd = rows[visible]
+        accepted = self.kf.update(upd, meas[visible])     # all True unless gating is on
+        out = np.zeros(self.n, dtype=bool)
+        out[upd[accepted]] = True
+        return out
+
+    def _project_square(self, rel, th, roll, pitch, half, off):
+        """Project a deck square (half-size `half`, centre offset `off` in the deck frame) into
+        the camera. Returns (all corners inside the image, mean side length in px)."""
         c, s = np.cos(th), np.sin(th)
-        offs = np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]]) * self.half
+        offs = np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]]) * half + off
         cx = rel[:, None, 0] + offs[None, :, 0] * c[:, None] - offs[None, :, 1] * s[:, None]
         cy = rel[:, None, 1] + offs[None, :, 0] * s[:, None] + offs[None, :, 1] * c[:, None]
         cz = np.repeat(rel[:, None, 2], 4, axis=1)
@@ -228,26 +275,7 @@ class FastLandingCore:
         inside = ((u > m) & (u < self.cam.width - m) & (v > m) & (v < self.cam.height - m)
                   & (z > 0.1)).all(axis=1)
         side = np.mean(np.hypot(u - np.roll(u, 1, axis=1), v - np.roll(v, 1, axis=1)), axis=1)
-        p_det = 1 / (1 + np.exp(-(side - p["side50"][rows]) / det["side_width_px"]))
-        p_det *= 1 - p["dropout"][rows]
-        visible = inside & (self.rng.uniform(size=k) < p_det)
-        # measurement: centre in camera frame, noise, depth bias (scales the ray)
-        centre = (fr.level_to_body(rel, roll, pitch) - self.mount) @ fr.R_BODY_CAM
-        hgt = np.maximum(rel[:, 2], 0.1)
-        ns = p["noise"][rows]
-        centre[:, :2] += self.rng.standard_normal((k, 2)) * (det["lat_std_m_per_m"] * hgt * ns)[:, None]
-        centre[:, 2] += self.rng.standard_normal(k) * det["depth_std_m_per_m2"] * hgt ** 2 * ns
-        centre *= (1 + p["bias"][rows])[:, None]
-        # de-rotate with the attitude at the IMAGE time (+ EKF noise), as gazebo_env does
-        an = det["attitude_noise_rad"]
-        roll_m = roll + an * self.rng.standard_normal(k)
-        pitch_m = pitch + an * self.rng.standard_normal(k)
-        meas = fr.body_to_level(centre @ fr.R_BODY_CAM.T + self.mount, roll_m, pitch_m)
-        upd = rows[visible]
-        self.kf.update(upd, meas[visible])
-        out = np.zeros(self.n, dtype=bool)
-        out[rows] = visible
-        return out
+        return inside, side
 
     def _drone_vel_meas(self) -> np.ndarray:
         return self.v + self.gust + 0.03 * self.rng.standard_normal((self.n, 3))

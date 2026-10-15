@@ -27,6 +27,11 @@ detection:                   # fitted to the Gazebo hover sweep (Step 10)
   depth_bias_frac: 0.02      # rendering shrinks the marker ~0.8 px -> depth over-estimate
   latency_s: [0.02, 0.165]   # image age at use, measured mean 0.089, max 0.165 s
   attitude_noise_rad: 0.009  # 0.5 deg EKF attitude error; de-rotation uses the attitude AT THE IMAGE TIME
+  nested:                    # only used when marker.yaml nested.enabled (synthetic-render estimates;
+                             # recalibrate with a Gazebo hover sweep before trusting the numbers)
+    inner_side50_px: 11.0    # inner 4.2 cm marker: 2/6 at 8.9 px (1.5 m), 6/6 at 13.3 px (1.0 m)
+    outer_lost_inner_side_px: 12.0   # outer drops out as the inner resolves: 4/6 at 11 px, 0/6 at 13 px
+    side_width_px: 1.0
 
 disturbance:                 # wind gusts as an additive velocity disturbance (OU)
   gust_tau_s: 2.0

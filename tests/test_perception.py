@@ -62,10 +62,10 @@ def test_gazebo_quat_nose_north_is_yaw_zero() -> None:
 
 
 # ---------------------------------------------------------------- detector
-def _render(tmp: Path, p_cam: np.ndarray, yaw: float, tilt: float) -> np.ndarray:
+def _render(tmp: Path, p_cam: np.ndarray, yaw: float, tilt: float, marker: dict = MARKER) -> np.ndarray:
     """Render the marker texture onto a grey image at a known pose (homography)."""
-    tex = cv2.imread(str(make_marker_texture(MARKER, tmp / "m.png")), cv2.IMREAD_GRAYSCALE)
-    total = MARKER["marker_size_m"] + 2 * MARKER["border_m"]
+    tex = cv2.imread(str(make_marker_texture(marker, tmp / "m.png")), cv2.IMREAD_GRAYSCALE)
+    total = marker["marker_size_m"] + 2 * marker["border_m"]
     px = tex.shape[0]
     # texture pixel (u,v) -> marker-plane metres (x right, y up), centred
     s = total / px
@@ -138,3 +138,90 @@ def test_kf_predicts_through_dropout() -> None:
         kf.predict(dt, drone_v)
     assert np.linalg.norm(kf.rel_pos[0] - p) < 0.05
     assert np.isclose(kf.since_meas[0], 1.0)
+
+
+def _kf_cfg(**over) -> dict:
+    cfg = yaml.safe_load((ROOT / "configs/perception.yaml").read_text())["kf"]
+    return {**cfg, **over}
+
+
+def _circle_run(cfg: dict, speed: float = 1.5, radius: float = 3.0, dropout_s: float = 1.0):
+    """Rover on a circle, static drone 5 m up; track 20 s, then predict through a dropout.
+    Returns the position error at the end of the dropout."""
+    rng = np.random.default_rng(1)
+    kf, dt, w = MarkerKF(1, cfg), 0.1, speed / radius
+    for i in range(int(20 / dt) + int(dropout_s / dt)):
+        t = (i + 1) * dt
+        p = np.array([radius * np.sin(w * t), radius * (1 - np.cos(w * t)), 5.0])
+        kf.predict(dt, np.zeros((1, 3)))
+        if t <= 20:
+            kf.update(np.array([0]), (p + rng.normal(0, 0.03, 3))[None])
+    return float(np.linalg.norm(kf.rel_pos[0, :2] - p[:2]))
+
+
+def test_kf_defaults_are_the_published_filter() -> None:
+    """New options off by default: identical numbers to the constant-velocity filter."""
+    a, b = _kf(), MarkerKF(1, _kf_cfg(model="cv", gate_chi2=0))
+    rng = np.random.default_rng(3)
+    for _ in range(100):
+        v = rng.normal(0, 0.5, (1, 3))
+        z = rng.normal(0, 2, (1, 3))
+        a.predict(0.1, v), b.predict(0.1, v)
+        a.update(np.array([0]), z), b.update(np.array([0]), z)
+    assert a.dim == 5 and np.array_equal(a.x, b.x) and np.array_equal(a.P, b.P)
+
+
+def test_ctrv_predicts_curves_better_than_cv() -> None:
+    err_cv = _circle_run(_kf_cfg(model="cv"))
+    err_ctrv = _circle_run(_kf_cfg(model="ctrv"))
+    assert err_ctrv < 0.5 * err_cv, (err_ctrv, err_cv)
+
+
+def test_ctrv_estimates_turn_rate() -> None:
+    kf = MarkerKF(1, _kf_cfg(model="ctrv"))
+    rng, dt, w = np.random.default_rng(2), 0.1, 0.5
+    for i in range(300):
+        t = (i + 1) * dt
+        p = np.array([3 * np.sin(w * t), 3 * (1 - np.cos(w * t)), 5.0])
+        kf.predict(dt, np.zeros((1, 3)))
+        kf.update(np.array([0]), (p + rng.normal(0, 0.03, 3))[None])
+    assert abs(kf.turn_rate[0] - w) < 0.1
+
+
+def test_gate_rejects_a_pose_jump_and_recovers_from_a_real_one() -> None:
+    kf, dt = MarkerKF(1, _kf_cfg(gate_chi2=16.3, gate_reinit=3)), 0.1
+    p = np.array([0.0, 0.0, 2.2])
+    for _ in range(30):
+        kf.predict(dt, np.zeros((1, 3)))
+        kf.update(np.array([0]), p[None])
+    kf.predict(dt, np.zeros((1, 3)))
+    ok = kf.update(np.array([0]), (p + [-0.6, 0.0, 0.0])[None])   # the rehearsal's 0.6 m jump
+    assert not ok[0] and np.linalg.norm(kf.rel_pos[0] - p) < 0.05
+    for _ in range(3):   # the jump persists -> it was real: re-initialise on it
+        kf.predict(dt, np.zeros((1, 3)))
+        kf.update(np.array([0]), (p + [-0.6, 0.0, 0.0])[None])
+    assert np.linalg.norm(kf.rel_pos[0] - (p + [-0.6, 0, 0])) < 0.05
+
+
+NESTED = {**MARKER, "texture_px": 1200, "error_correction_rate": 1.0,
+          "nested": {**MARKER["nested"], "enabled": True}}
+
+
+@pytest.mark.parametrize("p_cam,yaw,tilt,want_id", [
+    ((0.0, 0.0, 4.0), 0.4, 0.05, 0),       # high: the big marker
+    ((0.05, -0.03, 0.8), 1.2, 0.08, 1),    # low: only the small one resolves cleanly
+    ((-0.04, 0.02, 0.3), -2.5, -0.1, 1),   # below 0.47 m: the big one is out of frame
+    ((0.02, 0.02, 0.15), 0.0, 0.0, 1),
+])
+def test_nested_marker_gives_pad_centre_at_every_height(tmp_path, p_cam, yaw, tilt, want_id) -> None:
+    p = np.array(p_cam)
+    det = MarkerDetector(CAM, NESTED).detect(_render(tmp_path, p, yaw, tilt, NESTED))
+    assert det is not None and det.marker_id == want_id
+    # pose of the PAD centre (inner marker corrected by its 4.2 cm offset), not of the inner marker
+    assert np.linalg.norm(det.p_cam - p) < 0.015 * np.linalg.norm(p) + 0.008, (det.p_cam, p)
+
+
+def test_nested_cell_must_be_white(tmp_path) -> None:
+    bad = {**NESTED, "nested": {**NESTED["nested"], "cell": [2, 3]}}   # a black cell of id 0
+    with pytest.raises(ValueError):
+        make_marker_texture(bad, tmp_path / "bad.png")
