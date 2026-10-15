@@ -18,3 +18,12 @@ mav.tlog*
 # Experiment outputs (large/regenerable); curated figures/tables are copied to docs/
 results/*
 !results/.gitkeep
+# ...except the released final policy (~2 MB), so a fresh clone can run every demo
+!results/runs/
+results/runs/*
+!results/runs/main_s0/
+results/runs/main_s0/*
+!results/runs/main_s0/final.zip
+!results/runs/main_s0/vecnorm_final.pkl
+!results/runs/main_s0/meta.json
+!results/runs/main_s0/policy.onnx

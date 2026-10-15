@@ -1,0 +1,16 @@
+{
+  "seed": 0,
+  "curriculum": false,
+  "dr": true,
+  "steps": 20000000,
+  "residual": true,
+  "residual_scale": 0.5,
+  "wall_s": 1648.0397741794586,
+  "final_stage": 4,
+  "stage_log": [
+    [
+      0,
+      4
+    ]
+  ]
+}
