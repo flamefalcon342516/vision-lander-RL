@@ -98,7 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         (out / "episodes.json").write_text(json.dumps(recs, default=float))
         md = ev_mod.markdown_table(rows, f"{args.policy} - {args.stage}")
         (out / "summary.md").write_text(md + "\n")
-        print(md)
+        from lander.eval import report
+
+        print(report.summary(rows, f"{Path(args.policy).name} · {args.stage}"))
+        print(report.dim(f"  saved {out}/summary.md, summary.csv, episodes.json"))
         return 0
     if args.command == "sim":
         import yaml

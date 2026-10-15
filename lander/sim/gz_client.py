@@ -79,6 +79,15 @@ class _ServiceProxy:
             self._proc.join(timeout=5)
 
 
+def open_sim_log(name: str):
+    """Append-mode log under results/logs/ for a simulator child process."""
+    d = Path(__file__).resolve().parents[2] / "results" / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    f = open(d / f"{name}.log", "a", buffering=1)
+    f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+    return f
+
+
 def _kill_group(proc: subprocess.Popen) -> None:
     if proc.poll() is None:
         try:
@@ -105,8 +114,11 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
     for k in ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR"):
         if "cv2" in env.get(k, ""):
             env.pop(k)
+    # Gazebo's own chatter (SDF/EGL/QML warnings, plugin notices) goes to a log file,
+    # not the terminal; failures still surface as Python errors in the caller.
+    log = open_sim_log("gazebo")
     # New session: lets us kill gz's whole process group (server + GUI) at once.
-    server = subprocess.Popen(cmd, env=env, start_new_session=True)
+    server = subprocess.Popen(cmd, env=env, start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
     if not headless:
         # The GUI is a separate client, started once the server answers /gazebo/worlds.
         # Started together (`gz sim world.sdf`) the GUI could ask too early, fall back to
@@ -116,7 +128,7 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
                 r = subprocess.run(["gz", "service", "-l"], env=env, capture_output=True, text=True)
                 if "/gazebo/worlds" in r.stdout:
                     gui_proc = subprocess.Popen(["gz", "sim", "-g", "-v", str(verbosity)], env=env,
-                                                start_new_session=True)
+                                                start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
                     atexit.register(_kill_group, gui_proc)   # the watcher below dies with us
                     while server.poll() is None:      # close the window with the server
                         time.sleep(0.5)

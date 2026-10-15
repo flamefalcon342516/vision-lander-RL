@@ -8,6 +8,8 @@ same class talks to SITL (tcp:127.0.0.1:5760) or a real flight controller
 from __future__ import annotations
 
 import bisect
+import contextlib
+import io
 import threading
 import time
 from collections import deque
@@ -30,16 +32,19 @@ class MavLink:
         the camera frames are stamped with (Gazebo sim time in Stage B,
         time.monotonic on hardware)."""
         deadline = time.monotonic() + timeout_s
-        while True:
-            try:
-                self.mav = mavutil.mavlink_connection(url, source_system=255, autoreconnect=True)
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise TimeoutError(f"nothing listening on {url}")
-                time.sleep(0.5)
-        if self.mav.wait_heartbeat(timeout=timeout_s) is None:
-            raise TimeoutError("no HEARTBEAT")
+        # pymavlink prints "[Errno 111] Connection refused sleeping" on every retry while
+        # SITL boots; that is expected, so keep it off the terminal.
+        with contextlib.redirect_stdout(io.StringIO()):
+            while True:
+                try:
+                    self.mav = mavutil.mavlink_connection(url, source_system=255, autoreconnect=True)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"nothing listening on {url} (see results/logs/)")
+                    time.sleep(0.5)
+            if self.mav.wait_heartbeat(timeout=timeout_s) is None:
+                raise TimeoutError("no HEARTBEAT (SITL log: sitl workdir sitl.log; Gazebo: results/logs/gazebo.log)")
         self._lock = threading.Lock()
         self._latest: dict[str, Any] = {}
         self._rx_time: dict[str, float] = {}

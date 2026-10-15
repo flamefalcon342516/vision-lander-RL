@@ -13,6 +13,7 @@ from typing import Callable
 import numpy as np
 
 from lander.envs import task as tk
+from lander.eval import report
 
 Policy = Callable[[np.ndarray], np.ndarray]
 
@@ -78,11 +79,12 @@ def eval_gazebo(policy: Policy, cfg: dict, episodes: int, seed: int, rtf: float 
     env = GazeboLandingEnv(cfg, gui=gui, rtf=rtf, seed=seed)
     records: list[dict] = []
     try:
+        n_total, i = len(grid) * episodes, 0
         for kind, speed in grid:
             env.set_scenario(kind, speed)
             for ep in range(episodes):
-                log(f"=== {kind} @ {speed} m/s (episode {ep + 1}/{episodes}): "
-                    "take off / reposition above the rover, rover starts its path, land ===")
+                i += 1
+                log(report.banner(i, n_total, kind, speed))
                 obs, _ = env.reset()
                 while True:
                     obs, _, term, trunc, info = env.step(policy(obs[None])[0])
@@ -90,8 +92,8 @@ def eval_gazebo(policy: Policy, cfg: dict, episodes: int, seed: int, rtf: float 
                         break
                 rec = dict(info, path=kind, nominal_speed=speed, stage="gazebo")
                 records.append(rec)
-                log(f"  gazebo {kind}@{speed}: {tk.OUTCOME_NAMES[rec['outcome']]} "
-                    f"xy={rec['final_xy_err']:.2f} t={rec['time_s']:.1f}s")
+                log(report.episode_line(kind, speed, tk.OUTCOME_NAMES[rec["outcome"]],
+                                        rec["final_xy_err"], rec["time_s"]))
     finally:
         env.close()
     return records

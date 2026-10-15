@@ -81,6 +81,10 @@ python scripts/run_dagger.py
 python scripts/make_figures.py
 make test-fast
 ```
+Scenario tours: `--cells static:0,straight:0.5,circle:1.5,...` runs any sequence in one Gazebo
+session (take off → follow → land, then the next). Gazebo's own output (harmless upstream
+warnings) goes to `results/logs/gazebo.log`; SITL's to `results/sitl/sitl.log`.
+
 Run Gazebo jobs one at a time (they share SITL ports), and avoid stacking heavy jobs on a
 15 GB laptop.
 
