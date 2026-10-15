@@ -10,9 +10,11 @@ optional quaternion; we don't need orientation until Step 2.
 """
 from __future__ import annotations
 
+import atexit
 import math
 import multiprocessing as mp
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -77,6 +79,14 @@ class _ServiceProxy:
             self._proc.join(timeout=5)
 
 
+def _kill_group(proc: subprocess.Popen) -> None:
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
 def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Popen:
     """Start `gz sim` as a child process.
 
@@ -86,19 +96,35 @@ def launch_gz(world_file: str, headless: bool, verbosity: int) -> subprocess.Pop
     We start paused (no -r) so the caller decides when time begins: that keeps
     runs reproducible.
     """
-    cmd = ["gz", "sim", "-v", str(verbosity), world_file]
-    if headless:
-        # --headless-rendering: render cameras through EGL without an X
-        # display, needed for the downward camera when there is no GUI.
-        cmd[2:2] = ["-s", "--headless-rendering"]
-    # New session: lets us kill gz's whole process group (server + GUI) at once.
+    # Server only, always: --headless-rendering renders the cameras through EGL, so
+    # the camera images are the same with or without a GUI.
+    cmd = ["gz", "sim", "-s", "--headless-rendering", "-v", str(verbosity), world_file]
     env = os.environ.copy()
     # importing cv2 (opencv-python) points Qt at its own bundled plugins; the Gazebo
     # GUI then fails to load "xcb" and takes the server down with it
     for k in ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR"):
         if "cv2" in env.get(k, ""):
             env.pop(k)
-    return subprocess.Popen(cmd, env=env, start_new_session=True)
+    # New session: lets us kill gz's whole process group (server + GUI) at once.
+    server = subprocess.Popen(cmd, env=env, start_new_session=True)
+    if not headless:
+        # The GUI is a separate client, started once the server answers /gazebo/worlds.
+        # Started together (`gz sim world.sdf`) the GUI could ask too early, fall back to
+        # an empty "default" world and never show the drone or the rover.
+        def gui() -> None:
+            while server.poll() is None:
+                r = subprocess.run(["gz", "service", "-l"], env=env, capture_output=True, text=True)
+                if "/gazebo/worlds" in r.stdout:
+                    gui_proc = subprocess.Popen(["gz", "sim", "-g", "-v", str(verbosity)], env=env,
+                                                start_new_session=True)
+                    atexit.register(_kill_group, gui_proc)   # the watcher below dies with us
+                    while server.poll() is None:      # close the window with the server
+                        time.sleep(0.5)
+                    _kill_group(gui_proc)
+                    return
+                time.sleep(0.5)
+        threading.Thread(target=gui, daemon=True).start()
+    return server
 
 
 class GzWorld:

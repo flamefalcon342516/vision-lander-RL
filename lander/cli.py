@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--gui", action="store_true", help="gazebo: open the Gazebo GUI to watch")
     ev.add_argument("--kind", default=None, help="gazebo: only this path type (static/straight/circle/figure8/random)")
     ev.add_argument("--speed", type=float, default=None, help="gazebo: with --kind, rover speed in m/s")
+    ev.add_argument("--cells", default=None,
+                    help='gazebo: scenario sequence "kind:speed,...", e.g. static:0,straight:0.5,circle:1.5')
     sim = sub.add_parser("sim", help="Gazebo tools")
     sim.add_argument("action", choices=["up", "drop-test", "fly-check", "sysid", "make-marker"])
     sim.add_argument("--gui", action="store_true", help="also open the Gazebo GUI")
@@ -85,6 +87,9 @@ def main(argv: list[str] | None = None) -> int:
             recs = ev_mod.eval_fast(pol, cfg, args.episodes, args.seed, dr=not args.no_dr)
         else:
             grid = [(args.kind, args.speed or 0.0)] if args.kind else None
+            if args.cells:
+                grid = [(c.split(":")[0].strip(), float(c.split(":")[1]) if ":" in c else 0.0)
+                        for c in args.cells.split(",") if c.strip()]
             recs = ev_mod.eval_gazebo(pol, cfg, args.episodes, args.seed, rtf=args.rtf, grid=grid, gui=args.gui)
         out = Path("results/eval") / args.out
         out.mkdir(parents=True, exist_ok=True)

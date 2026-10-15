@@ -80,7 +80,9 @@ def eval_gazebo(policy: Policy, cfg: dict, episodes: int, seed: int, rtf: float 
     try:
         for kind, speed in grid:
             env.set_scenario(kind, speed)
-            for _ in range(episodes):
+            for ep in range(episodes):
+                log(f"=== {kind} @ {speed} m/s (episode {ep + 1}/{episodes}): "
+                    "take off / reposition above the rover, rover starts its path, land ===")
                 obs, _ = env.reset()
                 while True:
                     obs, _, term, trunc, info = env.step(policy(obs[None])[0])
