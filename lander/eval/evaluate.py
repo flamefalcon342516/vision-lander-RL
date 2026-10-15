@@ -158,6 +158,6 @@ def markdown_table(rows: list[dict], title: str) -> str:
         rec = "-" if np.isnan(r["recovery_rate"]) else f"{r['recovery_rate']:.0%}"
         f = lambda x, d=2: "-" if np.isnan(x) else f"{x:.{d}f}"  # noqa: E731
         out.append(f"| {r['path']} | {sp} | {r['n']} | {r['success']:.0%} "
-                   f"({r['success_ci_lo']:.0%}-{r['success_ci_hi']:.0%}) | {f(r['xy_err_m'], 3)} | "
+                   f"({max(r['success_ci_lo'], 0.0):.0%}-{r['success_ci_hi']:.0%}) | {f(r['xy_err_m'], 3)} | "
                    f"{f(r['rel_vxy_mps'])} | {f(r['time_s'], 1)} | {rec} |")
     return "\n".join(out)

@@ -660,12 +660,13 @@ has little DR-specific to learn. Reported as a null result.
 **Protocol** (lander/eval/evaluate.py): a fixed grid of 13 cells — static + {straight, circle,
 figure-8, random} × {0.5, 1.5, 2.5} m/s — fixed seeds, Wilson 95% CIs, outcomes split into
 success / miss / crash / out of bounds / timeout. Stage A: 500 episodes per cell per policy
-(1000 for the PID). Gazebo + SITL: 3 per cell at 5× real time.
+(1000 for the PID). Gazebo + SITL: 10 per cell at 5× real time (a first 3-per-cell pass gave
+PID 54% / residual 51% and was too noisy to compare).
 
-| Controller | Stage A, full DR | Stage A, nominal | Gazebo (n=39) |
+| Controller | Stage A, full DR | Stage A, nominal | Gazebo (n=130) |
 |---|---|---|---|
-| PID (tuned) | 31% | 48% | 54%, 7.3 s, 4.8 cm |
-| residual PPO s0 / s1 / s2 | 38% / 37% / 38% | 51% (s0) | 51%, 4.7 s, 11.8 cm |
+| PID (tuned) | 31% | 48% | 50%, 7.1 s, 4.4 cm |
+| residual PPO s0 / s1 / s2 | 38% / 37% / 38% | 51% (s0) | 54% (s0), 4.6 s, 11.2 cm |
 | curriculum s0 | 36% | 48% | – |
 | no DR s0 | 38% | 50% | – |
 
@@ -673,8 +674,10 @@ success / miss / crash / out of bounds / timeout. Stage A: 500 episodes per cell
 - Stage A: the residual wins on every seed, mainly on curves at 1.5 m/s (circle 28% vs 18%,
   figure-8 30% vs 17%) and lands ~35% faster. Nobody solves curves at 2.5 m/s (≤ 2%); a likely
   (untested) cause is the drone's identified acceleration/jerk limits versus the rover's turn rate.
-- Gazebo: **no measurable gain**. Both controllers land every low-speed cell and fail the fast
-  curves; the residual lands faster but less centred. The sim-to-sim scatter
+- Gazebo: **the curve gain transfers, the overall gain does not reach significance.** On the
+  1.5 m/s curved cells the residual lands 9/30 vs 1/30 (Fisher p = 0.012; this was the hypothesis
+  from Stage A, not a post-hoc pick). Overall 54% vs 50% (p = 0.62): the residual loses on straight
+  2.5 m/s (3/10 vs 6/10, not significant) and lands faster but less centred (11.2 vs 4.4 cm). The sim-to-sim scatter
   (docs/figures/sim_to_sim.png) shows Gazebo is *more* bimodal than Stage A: easy cells are easier,
   hard cells are harder.
 - Curriculum: slightly worse on curves (circle 1.5: 15% vs 28%), consistent with Step 9's
@@ -682,7 +685,9 @@ success / miss / crash / out of bounds / timeout. Stage A: 500 episodes per cell
 
 **Interview Q&A:**
 - *Why report a CI and not just a mean?* With 3 episodes per cell a Gazebo cell at 100% has a CI
-  of 44–100%; two controllers at 51% and 54% over 39 episodes are statistically indistinguishable.
+  of 44–100%. The 3-per-cell pass even had the order of PID and residual reversed; at 10 per cell
+  the overall rates are still indistinguishable, but a targeted, pre-stated comparison (curves at
+  1.5 m/s) is significant.
 - *Why is the Stage A success rate lower than Gazebo's?* Stage A's grid uses full DR; Gazebo is
   the nominal world, and the two simulators differ. Compare controllers within a column, not across.
 
@@ -694,6 +699,20 @@ success / miss / crash / out of bounds / timeout. Stage A: 500 episodes per cell
 - `safety.py`: a separate filter, unit-tested exhaustively — pilot override → go silent, heartbeat
   loss, NaN, geofence, marker lost → hover then RTL, ceiling, blind-descent floor, speed clamps.
 - `rehearsal.py`: runs the *real* runtime against Gazebo + SITL over the serial-port MAVLink path.
+- **Rehearsal result (straight path, 0.5 m/s, 2026-10-15): 2/3 physical touchdowns on the moving
+  deck** (rest 9 cm and 18 cm from the marker centre); loop 11–17 ms mean, image age ~70 ms.
+  Getting there took three fixes, each found from the per-tick CSV:
+  1. *Cut height.* The marker leaves the frame below ~0.47 m; the motor cut was at 0.30 m with a
+     0.6 s grace window, and the first run missed it by 3 mm (KF prediction stalled at 0.303 m),
+     after which the safety floor blocked descent and the drone climbed away. Cut raised to 0.40 m.
+  2. *Camera warm-up.* Before the first frame the marker counts as lost forever, so the safety
+     layer RTL'd on tick one. The runtime now waits for the camera before taking control.
+  3. *Harness.* After an RTL the disarmed drone could not be removed for a respawn ("not a direct
+     child of the world" → "Arm: Leaning"); each rehearsal episode now gets a fresh world.
+- **Open issue (episode 3):** at 2.2 m the marker estimate jumped ~0.6 m sideways in 0.3 s and the
+  altitude-floor rule fired although the estimated height was above its 1.5 m threshold (it uses
+  SITL altitude above home, which should be *higher*); the drone drifted and lost the marker.
+  Needs a look at the floor rule's altitude source and an outlier gate on PnP poses.
 - **Concept:** the learned policy is never trusted alone; the safety layer has veto power and is
   much simpler than the policy, so it can be tested exhaustively.
 
@@ -724,6 +743,10 @@ never visited (compounding error). **DAgger** fixes this: roll out a mix of teac
   identified simulator, PPO training, a deployment runtime with a safety layer, and a pixel student.
 - **Found:** PPO from scratch falls into dive / hover local optima on moving targets; residual PPO
   on top of a PID fixes that and improves Stage A success by ~7 points (3 seeds) and landing time by
-  ~35%. That gain **did not transfer** to Gazebo (51% vs 54%, n=39) — the main open problem.
+  ~35%. In Gazebo the gain on curves transfers (9/30 vs 1/30 at 1.5 m/s, p = 0.012), but overall
+  success is not significantly better (54% vs 50%, n=130) and landings are less centred — the main
+  open problem.
+- **Deployment:** the real runtime landed on the moving deck in 2/3 SITL rehearsals after three
+  fixes (Step 13); one open issue (pose jump + floor rule) remains before hardware.
 - **Next:** train or fine-tune the residual in Gazebo (or fit Stage A to Gazebo's touchdown
   behaviour), add a precision term to the reward, and render student frames from Gazebo.

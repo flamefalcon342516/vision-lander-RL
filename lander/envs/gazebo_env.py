@@ -135,10 +135,18 @@ class GazeboLandingEnv(gym.Env):
     def _hard_reset(self) -> None:
         """Drone flipped/disarmed: remove it (while SITL still runs, else Gazebo
         is frozen by lockstep), stop SITL, respawn, restart SITL."""
-        self.mav.close()
-        self.world.remove(self.cfg["sitl"]["drone"]["name"])
-        stop_process(self._sitl)
-        self._spawn_drone_and_sitl()
+        for attempt in range(3):
+            self.mav.close()
+            self.world.remove(self.cfg["sitl"]["drone"]["name"])
+            stop_process(self._sitl)
+            # the rover may be parked on the drone's spawn point -> "Arm: Leaning"
+            self.world.set_pose("rover", Vec3(0, 0, self.genv["rover_spawn_z_m"]), 0.0)
+            try:
+                self._spawn_drone_and_sitl()
+                return
+            except TimeoutError:
+                if attempt == 2:
+                    raise
 
     def close(self) -> None:
         if self.mav:

@@ -14,8 +14,8 @@ local optima); that negative result is documented in LEARNING.md Step 9.
 
 | Controller | Stage A, full DR | Stage A, nominal | Gazebo + SITL |
 |---|---|---|---|
-| PID (tuned) | 31% (n=13000) | 48% | 54% (39–68%, n=39), 7.3 s, 4.8 cm |
-| **Residual PPO**, 3 seeds | **37–38%** (n=6500 each) | **51%** | 51% (36–66%, n=39), **4.7 s**, 11.8 cm |
+| PID (tuned) | 31% (n=13000) | 48% | 50% (42–58%, n=130), 7.1 s, 4.4 cm |
+| **Residual PPO**, 3 seeds | **37–38%** (n=6500 each) | **51%** | 54% (45–62%, n=130), **4.6 s**, 11.2 cm |
 | ablation: curriculum | 36% | 48% | – |
 | ablation: no DR in training | 38% | 50% | – |
 | pixel student (DAgger, Step 15) | 34.9% (n=5200) | – | – |
@@ -25,13 +25,19 @@ touchdown within the marker with low relative velocity.
 
 - **Stage A:** the residual beats the PID by ~7 points on every seed and lands ~35% faster;
   the gains are on curved and fast paths (circle 1.5 m/s: 28% vs 18%).
-- **Gazebo:** no measurable gain (51% vs 54%, CIs overlap almost fully at 3 episodes per cell);
-  the residual lands faster but less centred — a sim-to-sim gap.
+- **Gazebo (seed 0, 10 episodes per cell):** the Stage A gain on curves *transfers* — on the
+  1.5 m/s circle / figure-8 / random cells the residual lands 9/30 vs the PID's 1/30 (Fisher
+  p = 0.012, the comparison Stage A predicted). The overall difference (54% vs 50%) is not
+  significant (p = 0.62): the residual is worse on straight 2.5 m/s (3/10 vs 6/10) and lands
+  ~35% faster but less centred (11.2 vs 4.4 cm).
 - **Ablations:** neither DR nor the curriculum helped in this setup; the curriculum slightly hurt
   on curves (it re-learns the static "dive" habit, as with PPO from scratch).
 - **Pixel student:** a CNN on two 96×72 frames keeps ~90% of the teacher's success. Its frames
   come from a synthetic renderer, not the Gazebo camera, so it is a feasibility result.
 - **Runtime:** ONNX == SB3 to 1e-4; 0.021 ms mean / 0.044 ms max per inference (laptop CPU).
+  The real companion runtime (ONNX + safety layer + motor cut) landed on the moving deck in
+  **2/3 SITL rehearsals** (straight, 0.5 m/s; 9 and 18 cm from centre). One open issue is listed
+  in LEARNING.md Step 13.
 
 ![Stage A success by path and speed](docs/figures/success_fast_dr.png)
 ![Gazebo success by path and speed](docs/figures/success_gazebo.png)

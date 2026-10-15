@@ -5,7 +5,8 @@ camera_device: 0
 
 runtime:
   rate_hz: 10.0             # MUST equal the training control rate (task.yaml control_dt_s)
-  cut_height_m: 0.30        # est. height above deck where motors are cut
+  cut_height_m: 0.40        # est. height above deck where motors are cut; the marker is lost
+                            # below ~0.47 m (rehearsal 2026-10-15) and 0.30 was missed by 3 mm
   cut_max_xy_m: 0.20
   cut_max_lost_s: 0.6
   max_duration_s: 60.0

@@ -109,7 +109,7 @@ class GzFrameSource:
 @dataclass
 class RuntimeConfig:
     rate_hz: float = 10.0
-    cut_height_m: float = 0.30        # est. height above deck at which motors are cut (touchdown)
+    cut_height_m: float = 0.40        # est. height above deck at which motors are cut (touchdown)
     cut_max_xy_m: float = 0.20
     cut_max_lost_s: float = 0.6       # marker must have been seen this recently (KF still fresh)
     max_duration_s: float = 60.0
@@ -147,6 +147,14 @@ class Runtime:
     def run(self, stop: Callable[[], bool] = lambda: False) -> dict:
         period = 1.0 / self.rt.rate_hz
         clock = self.frames.clock
+        # don't take control before the camera delivers: with no frame the marker counts as lost
+        # forever and the safety layer would RTL on the first tick (seen in rehearsal 2026-10-15)
+        t_wait = time.monotonic()
+        while self.frames.latest() is None:
+            if time.monotonic() - t_wait > 10.0:
+                return {"outcome": "no_camera", "ticks": 0, "loop_ms_mean": 0.0, "loop_ms_p99": 0.0,
+                        "img_age_mean_s": float("nan"), "overruns": 0}
+            time.sleep(0.01)
         t_start = clock()
         next_tick = t_start
         last_img_t = -1.0

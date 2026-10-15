@@ -35,12 +35,12 @@ made.append(plots.success_by_speed(
 made.append(plots.landing_error(
     {"PID": episodes("pid_fast_dr"), "residual PPO": episodes("res_s0_fast_dr")},
     OUT / "landing_error.png"))
-if rows("res_s0_gazebo"):
+if rows("res_s0_gazebo10"):
     made.append(plots.sim_to_sim(
-        {"PID": (rows("pid_fast_nominal"), rows("pid_gazebo")),
-         "residual PPO": (rows("res_s0_fast_nominal"), rows("res_s0_gazebo"))},
+        {"PID": (rows("pid_fast_nominal"), rows("pid_gazebo10")),
+         "residual PPO": (rows("res_s0_fast_nominal"), rows("res_s0_gazebo10"))},
         OUT / "sim_to_sim.png"))
     made.append(plots.success_by_speed(
-        {"PID (tuned)": rows("pid_gazebo"), "residual PPO": rows("res_s0_gazebo")},
-        OUT / "success_gazebo.png", "Stage B, Gazebo + ArduCopter SITL (3 episodes per cell)"))
+        {"PID (tuned)": rows("pid_gazebo10"), "residual PPO": rows("res_s0_gazebo10")},
+        OUT / "success_gazebo.png", "Stage B, Gazebo + ArduCopter SITL (10 episodes per cell)"))
 print("\n".join(map(str, made)))
